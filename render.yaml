@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: studyrag-backend
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: FRONTEND_ORIGINS
+        value: https://frontend-beta-nine-exumkm1408.vercel.app,https://frontend-76ihbafug-sourabreddy394s-projects.vercel.app,http://localhost:5173,http://127.0.0.1:5173
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: llama-3.1-8b-instant
