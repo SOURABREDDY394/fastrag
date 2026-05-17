@@ -80,7 +80,7 @@ function simplifyError(error, fallbackMessage) {
   console.error("StudyRAG request failed:", error);
 
   if (error?.code === "ERR_NETWORK") {
-    return "Backend is not running. Please start the FastAPI server.";
+    return "Could not reach the backend. Check the deployed API URL and CORS settings.";
   }
 
   if (error?.response?.status >= 500) {

@@ -17,6 +17,7 @@ DEFAULT_ALLOWED_ORIGINS = [
     "https://frontend-beta-nine-exumkm1408.vercel.app",
     "https://frontend-76ihbafug-sourabreddy394s-projects.vercel.app",
 ]
+ALLOWED_ORIGIN_REGEX = r"https://.*\.vercel\.app"
 
 
 def get_allowed_origins() -> list[str]:
@@ -38,6 +39,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_allowed_origins(),
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
