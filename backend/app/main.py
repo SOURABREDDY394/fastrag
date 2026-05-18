@@ -48,7 +48,7 @@ app.add_middleware(
 
 @app.get("/")
 def read_root():
-    return {"message": "StudyRAG backend is running"}
+    return {"message": "Backend is running"}
 
 
 app.include_router(upload_router)
