@@ -458,7 +458,11 @@ function App() {
   const [isAsking, setIsAsking] = useState(false);
 
   const uploadedDocumentId = uploadResult?.document_id || "";
-  const isDocumentReady = documentStatus?.status === "ready";
+  const isDocumentReady =
+    documentStatus?.status === "ready" ||
+    (documentStatus?.status === "processing" &&
+      documentStatus?.total_pages > 0 &&
+      documentStatus?.processed_pages >= documentStatus?.total_pages);
 
   useEffect(() => {
     if (!uploadedDocumentId) {

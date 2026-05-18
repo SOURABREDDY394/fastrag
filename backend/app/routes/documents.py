@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 
-from app.services.document_service import get_document, mark_document_failed
+from app.services.document_service import get_document, mark_document_failed, update_document
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 PROCESSING_STALE_MINUTES = int(os.getenv("PROCESSING_STALE_MINUTES", "20"))
@@ -26,6 +26,22 @@ def parse_uploaded_at(uploaded_at: str | None) -> datetime | None:
 def mark_stale_processing_document(document: dict) -> dict:
     if document.get("status") != "processing":
         return document
+
+    total_pages = document.get("total_pages") or 0
+    processed_pages = document.get("processed_pages") or 0
+    if total_pages > 0 and processed_pages >= total_pages:
+        update_document(
+            document["id"],
+            {
+                "status": "ready",
+                "error_message": None,
+            },
+        )
+        return {
+            **document,
+            "status": "ready",
+            "error_message": None,
+        }
 
     uploaded_at = parse_uploaded_at(document.get("uploaded_at"))
     if not uploaded_at:

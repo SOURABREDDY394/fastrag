@@ -118,15 +118,28 @@ def ask_question(
             }
 
         if (document.get("total_chunks") or 0) <= 0:
+            context = (
+                f"Uploaded document: {document.get('filename') or 'PDF'}.\n"
+                "The fast preview completed, but no searchable text chunks were extracted. "
+                "The document may be scanned or image-only. Answer the user's question as a helpful study assistant, "
+                "and clearly mention when the answer is general knowledge rather than grounded in extracted document text."
+            )
+            generation_start_time = time.perf_counter()
+            answer = generate_answer_from_context(
+                question=clean_question,
+                context=context,
+                fast_mode=True,
+            )
+            generation_ms = elapsed_ms(generation_start_time)
             latency = {
                 "embedding_ms": 0,
                 "retrieval_ms": 0,
                 "context_ms": 0,
-                "generation_ms": 0,
+                "generation_ms": generation_ms,
                 "total_ms": elapsed_ms(total_start_time),
             }
             return {
-                "answer": "This document was indexed incorrectly and has no searchable chunks. Please re-upload the PDF.",
+                "answer": answer,
                 "sources": [],
                 "retrieved_chunks": [],
                 "latency": latency,
