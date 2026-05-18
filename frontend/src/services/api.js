@@ -17,9 +17,15 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-export async function uploadPdf(file) {
+export async function uploadPdf(file, options = {}) {
   const formData = new FormData();
   formData.append("file", file);
+  if (Number.isInteger(options.pageOffset)) {
+    formData.append("page_offset", String(options.pageOffset));
+  }
+  if (Number.isInteger(options.totalPages)) {
+    formData.append("source_total_pages", String(options.totalPages));
+  }
 
   const response = await api.post("/upload/pdf", formData, {
     headers: {

@@ -35,7 +35,13 @@ def build_fast_preview_text(filename: str, page_number: int) -> str:
     )
 
 
-def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:
+def process_pdf_document(
+    document_id: str,
+    file_path: str,
+    filename: str,
+    page_number_offset: int = 0,
+    source_total_pages_override: int | None = None,
+) -> None:
     started_at = time.perf_counter()
     chunks_created = 0
     chunks_inserted = 0
@@ -89,11 +95,12 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                     )
                     break
 
-                page_number = page_index + 1
+                page_number = page_number_offset + page_index + 1
+                processed_page_count = page_index + 1
                 update_document(
                     document_id,
                     {
-                        "processed_pages": page_number,
+                        "processed_pages": processed_page_count,
                         "total_chunks": chunks_inserted,
                     },
                 )
@@ -140,7 +147,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                 update_document(
                     document_id,
                     {
-                        "processed_pages": page_number,
+                        "processed_pages": processed_page_count,
                         "total_chunks": chunks_inserted,
                     },
                 )

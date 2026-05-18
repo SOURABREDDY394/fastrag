@@ -16,6 +16,8 @@ function UploadCard({
   documentStatus,
   uploadError,
   isUploading,
+  pageRange,
+  onPageRangeChange,
   onFileSelect,
   onClearFile,
   onSubmit,
@@ -30,6 +32,7 @@ function UploadCard({
   const totalPages = documentStatus?.total_pages || 0;
   const progressPercent =
     totalPages > 0 ? Math.round((processedPages / totalPages) * 100) : 0;
+  const isLargePdf = (selectedFile?.size || 0) > 50 * 1024 * 1024;
 
   function handleDrop(event) {
     event.preventDefault();
@@ -119,6 +122,49 @@ function UploadCard({
         </div>
       )}
 
+      {selectedFile && isLargePdf && (
+        <section className="mt-4 border border-teal-100 bg-teal-50 p-4">
+          <h3 className="text-sm font-black text-teal-950">Large PDF range</h3>
+          <p className="mt-1 text-sm leading-6 text-teal-900">
+            Pick up to 10 pages to index now. Use another range for the next section.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-3">
+            <label className="text-xs font-black uppercase tracking-wide text-teal-900">
+              Start Page
+              <input
+                type="number"
+                min="1"
+                value={pageRange.start}
+                onChange={(event) => {
+                  const start = Math.max(1, Number(event.target.value) || 1);
+                  onPageRangeChange({
+                    start,
+                    end: Math.max(start, Math.min(pageRange.end, start + 9)),
+                  });
+                }}
+                className="mt-1 w-full border border-teal-200 bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-teal-700"
+              />
+            </label>
+            <label className="text-xs font-black uppercase tracking-wide text-teal-900">
+              End Page
+              <input
+                type="number"
+                min={pageRange.start}
+                value={pageRange.end}
+                onChange={(event) => {
+                  const end = Math.max(pageRange.start, Number(event.target.value) || pageRange.start);
+                  onPageRangeChange({
+                    start: pageRange.start,
+                    end: Math.min(end, pageRange.start + 9),
+                  });
+                }}
+                className="mt-1 w-full border border-teal-200 bg-white px-3 py-2 text-sm text-charcoal outline-none focus:border-teal-700"
+              />
+            </label>
+          </div>
+        </section>
+      )}
+
       {uploadError && (
         <div className="mt-4 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
           {uploadError}
@@ -174,7 +220,7 @@ function UploadCard({
         <section className="mt-4 border border-sky-200 bg-sky-50 p-4">
           <h3 className="text-sm font-black text-sky-950">Document uploaded. Indexing started.</h3>
           <p className="mt-1 text-sm leading-6 text-sky-800">
-            Your PDF is being indexed. Huge PDFs are uploaded as a one-page instant preview first.
+            Your selected pages are being indexed.
           </p>
 
           <div className="mt-4">
@@ -215,7 +261,7 @@ function UploadCard({
         {isUploading ? "Processing PDF..." : "Upload PDF"}
       </button>
       <p className="mt-3 text-center text-xs text-slate-500">
-        Huge PDFs are converted to a one-page instant preview before upload.
+        Huge PDFs can be indexed by page range for faster, real reading.
       </p>
     </form>
   );
