@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+import traceback
 
 import fitz
 
@@ -21,6 +22,8 @@ MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "100000"))
 
 
 def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:
+    print("BACKGROUND INDEXING STARTED", document_id, file_path, flush=True)
+    print("FILE EXISTS:", os.path.exists(file_path), flush=True)
     started_at = time.perf_counter()
     chunks_created = 0
     chunks_inserted = 0
@@ -34,7 +37,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
         update_document(
             document_id,
             {
-                "status": "processing",
+                "status": "extracting",
                 "error_message": None,
                 "processed_pages": 0,
                 "total_chunks": 0,
@@ -168,6 +171,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
             chunks_inserted,
         )
     except Exception as exc:
+        traceback.print_exc()
         logger.exception("[FastRAG] Background indexing failed: %s error=%s", filename, exc)
         error_message = str(exc)
         if OCR_REQUIRED_MESSAGE in error_message:

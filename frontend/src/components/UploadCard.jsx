@@ -23,7 +23,11 @@ function UploadCard({
   const [isDragging, setIsDragging] = useState(false);
   const [copied, setCopied] = useState(false);
   const status = documentStatus?.status || uploadResult?.status;
-  const isProcessing = status === "uploaded" || status === "processing";
+  const isProcessing =
+    status === "uploaded" ||
+    status === "queued" ||
+    status === "extracting" ||
+    status === "processing";
   const isReady = status === "ready";
   const isFailed = status === "failed";
   const processedPages = documentStatus?.processed_pages || 0;

@@ -429,10 +429,12 @@ function App() {
   const [isAsking, setIsAsking] = useState(false);
 
   const uploadedDocumentId = uploadResult?.document_id || "";
+  const activeIndexingStatuses = ["processing", "extracting"];
   const isDocumentReady =
     documentStatus?.status === "ready" ||
-    (documentStatus?.status === "processing" && (documentStatus?.total_chunks || 0) > 0) ||
-    (documentStatus?.status === "processing" &&
+    (activeIndexingStatuses.includes(documentStatus?.status) &&
+      (documentStatus?.total_chunks || 0) > 0) ||
+    (activeIndexingStatuses.includes(documentStatus?.status) &&
       documentStatus?.total_pages > 0 &&
       documentStatus?.processed_pages >= documentStatus?.total_pages);
 

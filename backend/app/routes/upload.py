@@ -7,7 +7,7 @@ from uuid import uuid4
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
 from app.services.document_service import create_uploaded_document, update_document
-from app.services.pdf_processing_service import process_pdf_document
+from app.services.indexing_jobs import register_document_file, run_indexing_job
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 UPLOAD_DIR = Path("uploads")
@@ -33,6 +33,7 @@ async def upload_pdf(
     upload_start_time = time.perf_counter()
 
     try:
+        print("Upload received", safe_filename, flush=True)
         bytes_written = 0
         with file_path.open("wb") as buffer:
             while chunk := file.file.read(1024 * 1024):
@@ -48,16 +49,21 @@ async def upload_pdf(
                         ),
                     )
                 buffer.write(chunk)
+        print("PDF saved", str(file_path), flush=True)
+        print("FILE EXISTS:", os.path.exists(str(file_path)), flush=True)
 
         if file_path.stat().st_size == 0:
             file_path.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
 
         document_id = create_uploaded_document(filename=safe_filename)
-        update_document(document_id, {"status": "processing"})
+        print("Document row created", document_id, flush=True)
+        update_document(document_id, {"status": "queued"})
+        register_document_file(document_id, str(file_path))
+        print("ADDING BACKGROUND INDEXING TASK", document_id, str(file_path), flush=True)
 
         background_tasks.add_task(
-            process_pdf_document,
+            run_indexing_job,
             document_id,
             str(file_path),
             safe_filename,
@@ -73,7 +79,7 @@ async def upload_pdf(
             "message": "PDF uploaded. Processing started.",
             "document_id": document_id,
             "filename": safe_filename,
-            "status": "processing",
+            "status": "queued",
         }
     except HTTPException:
         raise

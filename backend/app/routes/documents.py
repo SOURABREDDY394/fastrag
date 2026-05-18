@@ -2,9 +2,12 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, HTTPException
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from app.services.document_service import get_document, mark_document_failed, update_document
+from app.services.indexing_jobs import find_saved_file_path, register_document_file, run_indexing_job
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 PROCESSING_STALE_MINUTES = int(os.getenv("PROCESSING_STALE_MINUTES", "20"))
@@ -25,7 +28,7 @@ def parse_uploaded_at(uploaded_at: str | None) -> datetime | None:
 
 
 def mark_stale_processing_document(document: dict) -> dict:
-    if document.get("status") != "processing":
+    if document.get("status") not in {"processing", "extracting", "queued"}:
         return document
 
     total_pages = document.get("total_pages") or 0
@@ -69,12 +72,12 @@ def get_current_status(document: dict) -> str:
         return "completed"
     if status == "failed":
         return "failed"
-    if status == "processing":
+    if status in {"processing", "extracting", "queued"}:
         if (document.get("total_chunks") or 0) > 0:
             return "indexing"
         if (document.get("processed_pages") or 0) > 0:
             return "extracting"
-        return "queued"
+        return status
     return status or "uploaded"
 
 
@@ -102,4 +105,35 @@ def get_document_status(document_id: str):
         "total_chunks": document.get("total_chunks") or 0,
         "failed_pages": get_failed_pages(document),
         "error_message": document.get("error_message"),
+    }
+
+
+@router.post("/{document_id}/start-indexing")
+def start_indexing(document_id: str, background_tasks: BackgroundTasks):
+    document = get_document(document_id)
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    saved_file_path = find_saved_file_path(document_id)
+    if not saved_file_path:
+        raise HTTPException(
+            status_code=404,
+            detail="Saved PDF file was not found on this server.",
+        )
+
+    register_document_file(document_id, saved_file_path)
+    update_document(document_id, {"status": "queued", "error_message": None})
+    print("ADDING BACKGROUND INDEXING TASK", document_id, saved_file_path, flush=True)
+    background_tasks.add_task(
+        run_indexing_job,
+        document_id,
+        saved_file_path,
+        document.get("filename") or Path(saved_file_path).name,
+    )
+
+    return {
+        "message": "Indexing task queued.",
+        "document_id": document_id,
+        "saved_file_path": saved_file_path,
     }
