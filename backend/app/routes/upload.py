@@ -11,7 +11,7 @@ from app.services.pdf_processing_service import process_pdf_document
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 UPLOAD_DIR = Path("uploads")
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "100")) * 1024 * 1024
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "500")) * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 

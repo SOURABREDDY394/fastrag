@@ -174,7 +174,7 @@ function UploadCard({
         <section className="mt-4 border border-sky-200 bg-sky-50 p-4">
           <h3 className="text-sm font-black text-sky-950">Document uploaded. Indexing started.</h3>
           <p className="mt-1 text-sm leading-6 text-sky-800">
-            Your PDF is being indexed. You can ask questions once it is ready.
+            Your PDF is being indexed. Large PDFs are indexed from the first section first.
           </p>
 
           <div className="mt-4">
@@ -215,7 +215,7 @@ function UploadCard({
         {isUploading ? "Processing PDF..." : "Upload PDF"}
       </button>
       <p className="mt-3 text-center text-xs text-slate-500">
-        Files under 100 MB work best on the deployed app.
+        Large PDFs up to 500 MB are accepted; huge files are indexed from an initial section first.
       </p>
     </form>
   );

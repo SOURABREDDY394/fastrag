@@ -17,6 +17,8 @@ from app.services.pdf_service import OCR_REQUIRED_MESSAGE, extract_text_from_pag
 
 logger = logging.getLogger(__name__)
 MAX_INDEX_PAGES = int(os.getenv("MAX_INDEX_PAGES", "80"))
+MAX_LARGE_FILE_INDEX_PAGES = int(os.getenv("MAX_LARGE_FILE_INDEX_PAGES", "30"))
+LARGE_FILE_BYTES = int(os.getenv("LARGE_FILE_MB", "100")) * 1024 * 1024
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "250"))
 MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "420"))
 
@@ -44,7 +46,12 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
 
         with fitz.open(file_path) as document:
             source_total_pages = document.page_count
-            pages_to_index = min(source_total_pages, max(MAX_INDEX_PAGES, 1))
+            max_pages_for_file = (
+                MAX_LARGE_FILE_INDEX_PAGES
+                if os.path.getsize(file_path) > LARGE_FILE_BYTES
+                else MAX_INDEX_PAGES
+            )
+            pages_to_index = min(source_total_pages, max(max_pages_for_file, 1))
             update_document(document_id, {"total_pages": pages_to_index})
             logger.info(
                 "[FastRAG] total_pages=%s pages_to_index=%s filename=%s",

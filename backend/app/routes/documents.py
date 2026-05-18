@@ -9,7 +9,7 @@ router = APIRouter(prefix="/documents", tags=["Documents"])
 PROCESSING_STALE_MINUTES = int(os.getenv("PROCESSING_STALE_MINUTES", "20"))
 STALE_PROCESSING_MESSAGE = (
     "Document processing took too long on the deployed server. "
-    "Try uploading a smaller PDF or split this file into smaller parts."
+    "Try again with a smaller PDF section or a compressed file."
 )
 
 
