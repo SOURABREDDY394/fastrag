@@ -8,3 +8,6 @@ python-dotenv
 groq
 pytesseract
 pillow
+rapidocr
+onnxruntime
+opencv-python-headless

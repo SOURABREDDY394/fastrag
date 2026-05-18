@@ -1,5 +1,7 @@
 import fitz
 import os
+from functools import lru_cache
+
 from fastapi import HTTPException
 from PIL import Image
 import pytesseract
@@ -28,14 +30,31 @@ def configure_tesseract_path() -> None:
             return
 
 
+@lru_cache
+def get_rapid_ocr():
+    from rapidocr import RapidOCR
+
+    return RapidOCR()
+
+
+def image_to_text_with_rapid_ocr(image: Image.Image) -> str:
+    try:
+        import numpy as np
+
+        result = get_rapid_ocr()(np.array(image))
+        return "\n".join(text for text in (result.txts or ()) if text).strip()
+    except Exception as exc:
+        raise RuntimeError(f"RapidOCR failed for this page: {exc}") from exc
+
+
 def extract_text_with_ocr(page) -> str:
     try:
         configure_tesseract_path()
         pix = page.get_pixmap(matrix=fitz.Matrix(OCR_SCALE, OCR_SCALE), alpha=False)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         return pytesseract.image_to_string(image, timeout=OCR_TIMEOUT_SECONDS).strip()
-    except TesseractNotFoundError as exc:
-        raise RuntimeError(OCR_REQUIRED_MESSAGE) from exc
+    except TesseractNotFoundError:
+        return image_to_text_with_rapid_ocr(image)
     except Exception as exc:
         raise RuntimeError(f"OCR failed for this page: {exc}") from exc
 
