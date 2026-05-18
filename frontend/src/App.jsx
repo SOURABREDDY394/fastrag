@@ -19,6 +19,8 @@ import SourcesCard from "./components/SourcesCard";
 import UploadCard from "./components/UploadCard";
 import { askQuestion, getDocumentStatus, uploadPdf } from "./services/api";
 
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
 const storyStages = [
   {
     number: "01",
@@ -90,6 +92,10 @@ function simplifyError(error, fallbackMessage) {
   const detail = error?.response?.data?.detail;
   if (typeof detail === "string" && detail.toLowerCase().includes("no relevant")) {
     return "No relevant chunks found. Try asking something from the uploaded PDF.";
+  }
+
+  if (typeof detail === "string") {
+    return detail;
   }
 
   return fallbackMessage;
@@ -502,6 +508,13 @@ function App() {
 
     if (selectedFile.type !== "application/pdf") {
       setUploadError("Upload failed. Please try another PDF.");
+      return;
+    }
+
+    if (selectedFile.size > MAX_UPLOAD_BYTES) {
+      setUploadError(
+        "This PDF is too large for the deployed app. Please upload a file under 100 MB or split it into smaller PDFs.",
+      );
       return;
     }
 

@@ -1,4 +1,6 @@
 import logging
+import os
+import time
 
 import fitz
 
@@ -14,14 +16,19 @@ from app.services.embedding_service import generate_embeddings_for_chunks
 from app.services.pdf_service import OCR_REQUIRED_MESSAGE, extract_text_from_page
 
 logger = logging.getLogger(__name__)
+MAX_INDEX_PAGES = int(os.getenv("MAX_INDEX_PAGES", "80"))
+MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "250"))
+MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "420"))
 
 
 def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:
+    started_at = time.perf_counter()
     chunks_created = 0
     chunks_inserted = 0
     text_pages_count = 0
     ocr_pages_count = 0
     next_chunk_index = 0
+    pages_to_index = 0
 
     try:
         logger.info("[FastRAG] Background indexing started: %s", filename)
@@ -36,11 +43,33 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
         )
 
         with fitz.open(file_path) as document:
-            total_pages = document.page_count
-            update_document(document_id, {"total_pages": total_pages})
-            logger.info("[FastRAG] total_pages=%s filename=%s", total_pages, filename)
+            source_total_pages = document.page_count
+            pages_to_index = min(source_total_pages, max(MAX_INDEX_PAGES, 1))
+            update_document(document_id, {"total_pages": pages_to_index})
+            logger.info(
+                "[FastRAG] total_pages=%s pages_to_index=%s filename=%s",
+                source_total_pages,
+                pages_to_index,
+                filename,
+            )
 
-            for page_index in range(total_pages):
+            for page_index in range(pages_to_index):
+                if time.perf_counter() - started_at > MAX_INDEX_SECONDS:
+                    logger.warning(
+                        "[FastRAG] indexing time limit reached after %s pages: %s",
+                        page_index,
+                        filename,
+                    )
+                    break
+
+                if chunks_inserted >= MAX_INDEX_CHUNKS:
+                    logger.info(
+                        "[FastRAG] indexing chunk limit reached at %s chunks: %s",
+                        chunks_inserted,
+                        filename,
+                    )
+                    break
+
                 page_number = page_index + 1
                 page = document.load_page(page_index)
                 extracted_page = extract_text_from_page(page, page_number)
@@ -67,6 +96,8 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                 chunks_created += len(page_chunks)
 
                 if page_chunks:
+                    remaining_chunks = MAX_INDEX_CHUNKS - chunks_inserted
+                    page_chunks = page_chunks[:remaining_chunks]
                     embedded_chunks = generate_embeddings_for_chunks(page_chunks)
                     chunk_rows = build_chunk_rows(document_id, embedded_chunks)
                     chunks_inserted += batch_insert_chunks(chunk_rows)
@@ -94,7 +125,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                 "[FastRAG] indexing failed: %s filename=%s total_pages=%s text_pages=%s ocr_pages=%s chunks_created=%s chunks_inserted=%s",
                 error_message,
                 filename,
-                total_pages,
+                pages_to_index,
                 text_pages_count,
                 ocr_pages_count,
                 chunks_created,

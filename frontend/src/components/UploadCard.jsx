@@ -215,7 +215,7 @@ function UploadCard({
         {isUploading ? "Processing PDF..." : "Upload PDF"}
       </button>
       <p className="mt-3 text-center text-xs text-slate-500">
-        Large files may take a little time to process.
+        Files under 100 MB work best on the deployed app.
       </p>
     </form>
   );

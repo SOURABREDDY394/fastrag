@@ -1,5 +1,5 @@
 import logging
-import shutil
+import os
 import time
 from pathlib import Path
 from uuid import uuid4
@@ -11,6 +11,7 @@ from app.services.pdf_processing_service import process_pdf_document
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 UPLOAD_DIR = Path("uploads")
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "100")) * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -31,8 +32,21 @@ async def upload_pdf(
     upload_start_time = time.perf_counter()
 
     try:
+        bytes_written = 0
         with file_path.open("wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := file.file.read(1024 * 1024):
+                bytes_written += len(chunk)
+                if bytes_written > MAX_UPLOAD_BYTES:
+                    file_path.unlink(missing_ok=True)
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "PDF is too large for this deployment. "
+                            f"Upload a file up to {MAX_UPLOAD_BYTES // (1024 * 1024)} MB "
+                            "or split the PDF into smaller parts."
+                        ),
+                    )
+                buffer.write(chunk)
 
         if file_path.stat().st_size == 0:
             file_path.unlink(missing_ok=True)
