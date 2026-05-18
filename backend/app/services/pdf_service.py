@@ -9,6 +9,7 @@ from pytesseract import TesseractNotFoundError
 from pathlib import Path
 
 MIN_TEXT_LENGTH = 30
+OCR_ENABLED = os.getenv("OCR_ENABLED", "false").lower() == "true"
 OCR_SCALE = float(os.getenv("OCR_SCALE", "0.9"))
 OCR_TIMEOUT_SECONDS = int(os.getenv("OCR_TIMEOUT_SECONDS", "5"))
 OCR_REQUIRED_MESSAGE = (
@@ -62,14 +63,32 @@ def extract_text_with_ocr(page) -> str:
 def extract_text_from_page(page, page_number: int) -> dict:
     text = page.get_text("text").strip()
 
+    print(
+        "PAGE EXTRACTION",
+        {"page_number": page_number, "method": "pymupdf", "text_length": len(text)},
+        flush=True,
+    )
+
     if text and len(text) > MIN_TEXT_LENGTH:
         return {
             "page_number": page_number,
             "text": text,
-            "method": "text",
+            "method": "pymupdf",
+        }
+
+    if not OCR_ENABLED:
+        return {
+            "page_number": page_number,
+            "text": "",
+            "method": "skipped_ocr",
         }
 
     ocr_text = extract_text_with_ocr(page)
+    print(
+        "PAGE EXTRACTION",
+        {"page_number": page_number, "method": "ocr", "text_length": len(ocr_text)},
+        flush=True,
+    )
 
     return {
         "page_number": page_number,

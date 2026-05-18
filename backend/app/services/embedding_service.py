@@ -1,8 +1,10 @@
 from functools import lru_cache
+import os
 
 from fastapi import HTTPException
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "5"))
 
 
 @lru_cache
@@ -36,7 +38,10 @@ def generate_embedding(text: str) -> list[float]:
         ) from exc
 
 
-def generate_embeddings_for_chunks(chunks: list[dict]) -> list[dict]:
+def generate_embeddings_for_chunks(
+    chunks: list[dict],
+    batch_size: int | None = None,
+) -> list[dict]:
     try:
         valid_chunks = [
             {**chunk, "chunk_text": chunk.get("chunk_text", "").strip()}
@@ -48,15 +53,22 @@ def generate_embeddings_for_chunks(chunks: list[dict]) -> list[dict]:
             return []
 
         model = get_embedding_model()
-        embeddings = model.encode([chunk["chunk_text"] for chunk in valid_chunks])
+        embedded_chunks = []
+        effective_batch_size = batch_size or EMBEDDING_BATCH_SIZE
 
-        return [
-            {
-                **chunk,
-                "embedding": embedding.tolist(),
-            }
-            for chunk, embedding in zip(valid_chunks, embeddings, strict=True)
-        ]
+        for start in range(0, len(valid_chunks), effective_batch_size):
+            batch = valid_chunks[start : start + effective_batch_size]
+            print("Embedding batch size", len(batch), flush=True)
+            embeddings = model.encode([chunk["chunk_text"] for chunk in batch])
+            embedded_chunks.extend(
+                {
+                    **chunk,
+                    "embedding": embedding.tolist(),
+                }
+                for chunk, embedding in zip(batch, embeddings, strict=True)
+            )
+
+        return embedded_chunks
 
     except HTTPException:
         raise

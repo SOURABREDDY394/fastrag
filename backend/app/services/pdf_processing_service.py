@@ -1,3 +1,4 @@
+import gc
 import logging
 import os
 import time
@@ -9,6 +10,7 @@ from app.services.chunking_service import chunk_page_text
 from app.services.document_service import (
     batch_insert_chunks,
     build_chunk_rows,
+    get_document,
     mark_document_failed,
     update_document,
     utc_now,
@@ -17,8 +19,14 @@ from app.services.embedding_service import generate_embeddings_for_chunks
 from app.services.pdf_service import OCR_REQUIRED_MESSAGE, extract_text_from_page
 
 logger = logging.getLogger(__name__)
-PDF_BATCH_SIZE = int(os.getenv("PDF_BATCH_SIZE", "10"))
+PDF_BATCH_SIZE = int(os.getenv("PDF_BATCH_SIZE", "3"))
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "100000"))
+
+
+def get_failed_pages_message(failed_pages: list[int]) -> str | None:
+    if not failed_pages:
+        return None
+    return f"Some pages failed: {failed_pages[:20]}"
 
 
 def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:
@@ -33,28 +41,36 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
     failed_pages = []
 
     try:
+        existing_document = get_document(document_id) or {}
+        chunks_inserted = existing_document.get("total_chunks") or 0
+        next_chunk_index = chunks_inserted
+        print("Starting indexing", {"document_id": document_id, "filename": filename}, flush=True)
         logger.info("[FastRAG] Background indexing started: %s", filename)
         update_document(
             document_id,
             {
                 "status": "extracting",
                 "error_message": None,
-                "processed_pages": 0,
-                "total_chunks": 0,
+                "total_chunks": chunks_inserted,
             },
         )
 
         with fitz.open(file_path) as document:
             total_pages = document.page_count
+            start_page_index = min(
+                max(existing_document.get("processed_pages") or 0, 0),
+                total_pages,
+            )
             update_document(document_id, {"total_pages": total_pages})
             logger.info(
-                "[FastRAG] total_pages=%s batch_size=%s filename=%s",
+                "[FastRAG] total_pages=%s batch_size=%s start_page=%s filename=%s",
                 total_pages,
                 PDF_BATCH_SIZE,
+                start_page_index + 1,
                 filename,
             )
 
-            for page_index in range(total_pages):
+            for batch_start in range(start_page_index, total_pages, PDF_BATCH_SIZE):
                 if chunks_inserted >= MAX_INDEX_CHUNKS:
                     logger.info(
                         "[FastRAG] indexing chunk limit reached at %s chunks: %s",
@@ -63,55 +79,66 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                     )
                     break
 
-                page_number = page_index + 1
-                processed_page_count = page_index + 1
-                try:
-                    page = document.load_page(page_index)
-                    extracted_page = extract_text_from_page(page, page_number)
-                    page_text = extracted_page["text"]
-                    extraction_method = extracted_page["method"]
-                except Exception as exc:
-                    failed_pages.append(page_number)
-                    logger.exception(
-                        "[FastRAG] Page %s failed; continuing: %s",
-                        page_number,
-                        exc,
-                    )
-                    update_document(
-                        document_id,
-                        {
-                            "processed_pages": processed_page_count,
-                            "total_chunks": chunks_inserted,
-                            "error_message": f"Some pages failed: {failed_pages[:20]}",
-                        },
-                    )
-                    continue
-
-                if extraction_method == "ocr":
-                    ocr_pages_count += 1
-                else:
-                    text_pages_count += 1
-
-                logger.info(
-                    "[FastRAG] Page %s extracted using %s",
-                    page_number,
-                    extraction_method.upper() if extraction_method == "ocr" else "text",
+                batch_end = min(batch_start + PDF_BATCH_SIZE, total_pages)
+                print(
+                    f"Processing pages {batch_start + 1}-{batch_end}",
+                    flush=True,
                 )
+                batch_chunks = []
+                processed_page_count = batch_start
 
-                page_chunks = chunk_page_text(
-                    page_number=page_number,
-                    text=page_text,
-                    start_chunk_index=next_chunk_index,
-                )
-                next_chunk_index += len(page_chunks)
-                chunks_created += len(page_chunks)
+                for page_index in range(batch_start, batch_end):
+                    page_number = page_index + 1
+                    processed_page_count = page_number
+                    try:
+                        page = document.load_page(page_index)
+                        extracted_page = extract_text_from_page(page, page_number)
+                        page_text = extracted_page["text"]
+                        extraction_method = extracted_page["method"]
+                        print(
+                            "Extracted text length",
+                            {
+                                "page_number": page_number,
+                                "method": extraction_method,
+                                "text_length": len(page_text),
+                            },
+                            flush=True,
+                        )
+                        del page
+                    except Exception as exc:
+                        failed_pages.append(page_number)
+                        logger.exception(
+                            "[FastRAG] Page %s failed; continuing: %s",
+                            page_number,
+                            exc,
+                        )
+                        continue
 
-                if page_chunks:
+                    if extraction_method == "ocr":
+                        ocr_pages_count += 1
+                    else:
+                        text_pages_count += 1
+
+                    page_chunks = chunk_page_text(
+                        page_number=page_number,
+                        text=page_text,
+                        start_chunk_index=next_chunk_index,
+                    )
+                    next_chunk_index += len(page_chunks)
+                    chunks_created += len(page_chunks)
+                    batch_chunks.extend(page_chunks)
+                    del page_text, page_chunks
+
+                print("Chunks created for this batch", len(batch_chunks), flush=True)
+
+                if batch_chunks:
                     remaining_chunks = MAX_INDEX_CHUNKS - chunks_inserted
-                    page_chunks = page_chunks[:remaining_chunks]
-                    embedded_chunks = generate_embeddings_for_chunks(page_chunks)
+                    batch_chunks = batch_chunks[:remaining_chunks]
+                    embedded_chunks = generate_embeddings_for_chunks(batch_chunks)
                     chunk_rows = build_chunk_rows(document_id, embedded_chunks)
-                    chunks_inserted += batch_insert_chunks(chunk_rows)
+                    inserted_count = batch_insert_chunks(chunk_rows)
+                    chunks_inserted += inserted_count
+                    print("Inserted chunks count", inserted_count, flush=True)
                     logger.info("[FastRAG] Chunks inserted: %s", chunks_inserted)
 
                 update_document(
@@ -119,20 +146,24 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                     {
                         "processed_pages": processed_page_count,
                         "total_chunks": chunks_inserted,
-                        "error_message": (
-                            f"Some pages failed: {failed_pages[:20]}"
-                            if failed_pages
-                            else None
-                        ),
+                        "error_message": get_failed_pages_message(failed_pages),
                     },
                 )
+                print("Progress updated", processed_page_count, chunks_inserted, flush=True)
                 logger.info(
                     "[FastRAG] processed_pages=%s chunks_created=%s chunks_inserted=%s filename=%s",
-                    page_number,
+                    processed_page_count,
                     chunks_created,
                     chunks_inserted,
                     filename,
                 )
+                del batch_chunks
+                if "embedded_chunks" in locals():
+                    del embedded_chunks
+                if "chunk_rows" in locals():
+                    del chunk_rows
+                gc.collect()
+                print("Memory cleanup done", flush=True)
 
         if chunks_inserted <= 0:
             error_message = "No readable text was found in this PDF."
@@ -155,11 +186,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                 "status": "ready",
                 "total_chunks": chunks_inserted,
                 "processed_at": utc_now(),
-                "error_message": (
-                    f"Indexed with failed pages: {failed_pages[:20]}"
-                    if failed_pages
-                    else None
-                ),
+                "error_message": get_failed_pages_message(failed_pages),
             },
         )
         logger.info(

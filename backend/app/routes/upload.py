@@ -11,7 +11,7 @@ from app.services.indexing_jobs import register_document_file, run_indexing_job
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 UPLOAD_DIR = Path("uploads")
-MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "500")) * 1024 * 1024
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "300")) * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +36,7 @@ async def upload_pdf(
         print("Upload received", safe_filename, flush=True)
         bytes_written = 0
         with file_path.open("wb") as buffer:
-            while chunk := file.file.read(1024 * 1024):
+            while chunk := await file.read(1024 * 1024):
                 bytes_written += len(chunk)
                 if bytes_written > MAX_UPLOAD_BYTES:
                     file_path.unlink(missing_ok=True)
