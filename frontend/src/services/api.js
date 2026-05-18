@@ -1,9 +1,17 @@
 import axios from "axios";
 
+const RENDER_API_BASE_URL = "https://fastrag-1.onrender.com";
+const configuredApiBaseUrl =
+  import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "";
+const normalizedApiBaseUrl = configuredApiBaseUrl.trim().replace(/\/+$/, "");
+const isLocalApiBaseUrl = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
+  normalizedApiBaseUrl,
+);
+
 const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  import.meta.env.VITE_API_URL ||
-  "https://fastrag-1.onrender.com";
+  import.meta.env.PROD && isLocalApiBaseUrl
+    ? RENDER_API_BASE_URL
+    : normalizedApiBaseUrl || RENDER_API_BASE_URL;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
