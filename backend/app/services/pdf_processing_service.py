@@ -17,10 +17,10 @@ from app.services.pdf_service import OCR_REQUIRED_MESSAGE, extract_text_from_pag
 
 logger = logging.getLogger(__name__)
 MAX_INDEX_PAGES = int(os.getenv("MAX_INDEX_PAGES", "80"))
-MAX_LARGE_FILE_INDEX_PAGES = int(os.getenv("MAX_LARGE_FILE_INDEX_PAGES", "8"))
+MAX_LARGE_FILE_INDEX_PAGES = int(os.getenv("MAX_LARGE_FILE_INDEX_PAGES", "2"))
 LARGE_FILE_BYTES = int(os.getenv("LARGE_FILE_MB", "100")) * 1024 * 1024
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "250"))
-MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "120"))
+MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "60"))
 
 
 def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:

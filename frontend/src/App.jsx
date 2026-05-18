@@ -22,7 +22,7 @@ import { askQuestion, getDocumentStatus, uploadPdf } from "./services/api";
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const FAST_INDEX_BYTES = 50 * 1024 * 1024;
-const FAST_INDEX_PAGES = 8;
+const FAST_INDEX_PAGES = 2;
 
 const storyStages = [
   {

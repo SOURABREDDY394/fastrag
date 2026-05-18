@@ -9,8 +9,8 @@ from pytesseract import TesseractNotFoundError
 from pathlib import Path
 
 MIN_TEXT_LENGTH = 30
-OCR_SCALE = float(os.getenv("OCR_SCALE", "1.2"))
-OCR_TIMEOUT_SECONDS = int(os.getenv("OCR_TIMEOUT_SECONDS", "8"))
+OCR_SCALE = float(os.getenv("OCR_SCALE", "0.9"))
+OCR_TIMEOUT_SECONDS = int(os.getenv("OCR_TIMEOUT_SECONDS", "5"))
 OCR_REQUIRED_MESSAGE = (
     "This PDF appears to be scanned. OCR is required but Tesseract is not installed."
 )
