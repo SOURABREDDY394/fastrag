@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -62,6 +63,26 @@ def mark_stale_processing_document(document: dict) -> dict:
     }
 
 
+def get_current_status(document: dict) -> str:
+    status = document.get("status")
+    if status == "ready":
+        return "completed"
+    if status == "failed":
+        return "failed"
+    if status == "processing":
+        if (document.get("total_chunks") or 0) > 0:
+            return "indexing"
+        if (document.get("processed_pages") or 0) > 0:
+            return "extracting"
+        return "queued"
+    return status or "uploaded"
+
+
+def get_failed_pages(document: dict) -> list[int]:
+    error_message = document.get("error_message") or ""
+    return [int(match) for match in re.findall(r"\d+", error_message)[:20]]
+
+
 @router.get("/{document_id}/status")
 def get_document_status(document_id: str):
     document = get_document(document_id)
@@ -75,8 +96,10 @@ def get_document_status(document_id: str):
         "document_id": document["id"],
         "filename": document.get("filename"),
         "status": document.get("status"),
+        "current_status": get_current_status(document),
         "total_pages": document.get("total_pages") or 0,
         "processed_pages": document.get("processed_pages") or 0,
         "total_chunks": document.get("total_chunks") or 0,
+        "failed_pages": get_failed_pages(document),
         "error_message": document.get("error_message"),
     }

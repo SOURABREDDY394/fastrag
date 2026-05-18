@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
 from app.services.document_service import create_uploaded_document, update_document
 from app.services.pdf_processing_service import process_pdf_document
@@ -15,12 +15,11 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_MB", "500")) * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
+@router.post("")
 @router.post("/pdf")
 async def upload_pdf(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    page_offset: int = Form(0),
-    source_total_pages: int | None = Form(None),
 ):
     is_pdf_content = file.content_type == "application/pdf"
     is_pdf_name = (file.filename or "").lower().endswith(".pdf")
@@ -62,8 +61,6 @@ async def upload_pdf(
             document_id,
             str(file_path),
             safe_filename,
-            max(page_offset, 0),
-            source_total_pages,
         )
 
         logger.info(

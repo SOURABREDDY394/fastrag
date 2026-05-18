@@ -20,8 +20,9 @@ function QuestionCard({
   onSubmit,
 }) {
   const isReady = documentStatus?.status === "ready";
+  const hasIndexedChunks = (documentStatus?.total_chunks || 0) > 0;
   const isFailed = documentStatus?.status === "failed";
-  const isAskDisabled = !documentId || !isReady || !question.trim() || isAsking;
+  const isAskDisabled = !documentId || (!isReady && !hasIndexedChunks) || !question.trim() || isAsking;
 
   function handleQuestionChange(value) {
     onQuestionChange(value.slice(0, MAX_QUESTION_LENGTH));
@@ -78,6 +79,8 @@ function QuestionCard({
             ? "Upload a PDF first to start asking questions."
             : isReady
               ? "Ready to answer questions from your uploaded PDF."
+              : hasIndexedChunks
+                ? "Document is still indexing. Answers may improve after full indexing completes."
               : isFailed
                 ? "PDF processing failed. Upload another PDF to ask questions."
                 : "Your PDF is being indexed. You can ask questions once it is ready."}

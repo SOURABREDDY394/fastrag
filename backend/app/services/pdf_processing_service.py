@@ -1,6 +1,5 @@
 import logging
 import os
-import re
 import time
 
 import fitz
@@ -17,49 +16,18 @@ from app.services.embedding_service import generate_embeddings_for_chunks
 from app.services.pdf_service import OCR_REQUIRED_MESSAGE, extract_text_from_page
 
 logger = logging.getLogger(__name__)
-MAX_INDEX_PAGES = int(os.getenv("MAX_INDEX_PAGES", "80"))
-MAX_LARGE_FILE_INDEX_PAGES = int(os.getenv("MAX_LARGE_FILE_INDEX_PAGES", "1"))
-LARGE_FILE_BYTES = int(os.getenv("LARGE_FILE_MB", "100")) * 1024 * 1024
-MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "250"))
-MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "60"))
-FAST_INDEX_SUFFIX = "-fast-index.pdf"
-RANGE_INDEX_PATTERN = re.compile(r"-pages-\d+-\d+\.pdf$", re.IGNORECASE)
+PDF_BATCH_SIZE = int(os.getenv("PDF_BATCH_SIZE", "10"))
+MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "100000"))
 
 
-def is_fast_range_file(filename: str) -> bool:
-    lowered_filename = filename.lower()
-    return lowered_filename.endswith(FAST_INDEX_SUFFIX) or bool(
-        RANGE_INDEX_PATTERN.search(lowered_filename)
-    )
-
-
-def build_fast_preview_text(filename: str, page_number: int) -> str:
-    original_filename = RANGE_INDEX_PATTERN.sub(".pdf", filename).replace(
-        FAST_INDEX_SUFFIX, ".pdf"
-    )
-    return (
-        f"{original_filename} is a large scanned PDF. "
-        f"Page {page_number} was included in the selected range, but no embedded text "
-        "was available on that page. This usually means the page is scanned/image-only. "
-        "The page range was accepted successfully; use a text-based PDF for instant "
-        "grounded answers or run a dedicated OCR pass for this section."
-    )
-
-
-def process_pdf_document(
-    document_id: str,
-    file_path: str,
-    filename: str,
-    page_number_offset: int = 0,
-    source_total_pages_override: int | None = None,
-) -> None:
+def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:
     started_at = time.perf_counter()
     chunks_created = 0
     chunks_inserted = 0
     text_pages_count = 0
     ocr_pages_count = 0
     next_chunk_index = 0
-    pages_to_index = 0
+    failed_pages = []
 
     try:
         logger.info("[FastRAG] Background indexing started: %s", filename)
@@ -74,30 +42,16 @@ def process_pdf_document(
         )
 
         with fitz.open(file_path) as document:
-            source_total_pages = document.page_count
-            max_pages_for_file = (
-                MAX_LARGE_FILE_INDEX_PAGES
-                if os.path.getsize(file_path) > LARGE_FILE_BYTES
-                else MAX_INDEX_PAGES
-            )
-            pages_to_index = min(source_total_pages, max(max_pages_for_file, 1))
-            update_document(document_id, {"total_pages": pages_to_index})
+            total_pages = document.page_count
+            update_document(document_id, {"total_pages": total_pages})
             logger.info(
-                "[FastRAG] total_pages=%s pages_to_index=%s filename=%s",
-                source_total_pages,
-                pages_to_index,
+                "[FastRAG] total_pages=%s batch_size=%s filename=%s",
+                total_pages,
+                PDF_BATCH_SIZE,
                 filename,
             )
 
-            for page_index in range(pages_to_index):
-                if time.perf_counter() - started_at > MAX_INDEX_SECONDS:
-                    logger.warning(
-                        "[FastRAG] indexing time limit reached after %s pages: %s",
-                        page_index,
-                        filename,
-                    )
-                    break
-
+            for page_index in range(total_pages):
                 if chunks_inserted >= MAX_INDEX_CHUNKS:
                     logger.info(
                         "[FastRAG] indexing chunk limit reached at %s chunks: %s",
@@ -106,27 +60,29 @@ def process_pdf_document(
                     )
                     break
 
-                page_number = page_number_offset + page_index + 1
+                page_number = page_index + 1
                 processed_page_count = page_index + 1
-                update_document(
-                    document_id,
-                    {
-                        "processed_pages": processed_page_count,
-                        "total_chunks": chunks_inserted,
-                    },
-                )
-                page = document.load_page(page_index)
-                if is_fast_range_file(filename):
-                    page_text = page.get_text("text").strip()
-                    extraction_method = "text"
-
-                    if len(page_text) <= 30:
-                        page_text = build_fast_preview_text(filename, page_number)
-                        extraction_method = "fast-range"
-                else:
+                try:
+                    page = document.load_page(page_index)
                     extracted_page = extract_text_from_page(page, page_number)
                     page_text = extracted_page["text"]
                     extraction_method = extracted_page["method"]
+                except Exception as exc:
+                    failed_pages.append(page_number)
+                    logger.exception(
+                        "[FastRAG] Page %s failed; continuing: %s",
+                        page_number,
+                        exc,
+                    )
+                    update_document(
+                        document_id,
+                        {
+                            "processed_pages": processed_page_count,
+                            "total_chunks": chunks_inserted,
+                            "error_message": f"Some pages failed: {failed_pages[:20]}",
+                        },
+                    )
+                    continue
 
                 if extraction_method == "ocr":
                     ocr_pages_count += 1
@@ -160,6 +116,11 @@ def process_pdf_document(
                     {
                         "processed_pages": processed_page_count,
                         "total_chunks": chunks_inserted,
+                        "error_message": (
+                            f"Some pages failed: {failed_pages[:20]}"
+                            if failed_pages
+                            else None
+                        ),
                     },
                 )
                 logger.info(
@@ -177,7 +138,7 @@ def process_pdf_document(
                 "[FastRAG] indexing failed: %s filename=%s total_pages=%s text_pages=%s ocr_pages=%s chunks_created=%s chunks_inserted=%s",
                 error_message,
                 filename,
-                pages_to_index,
+                total_pages,
                 text_pages_count,
                 ocr_pages_count,
                 chunks_created,
@@ -191,7 +152,11 @@ def process_pdf_document(
                 "status": "ready",
                 "total_chunks": chunks_inserted,
                 "processed_at": utc_now(),
-                "error_message": None,
+                "error_message": (
+                    f"Indexed with failed pages: {failed_pages[:20]}"
+                    if failed_pages
+                    else None
+                ),
             },
         )
         logger.info(

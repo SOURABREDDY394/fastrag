@@ -102,7 +102,7 @@ def ask_question(
         if not document:
             raise HTTPException(status_code=404, detail="Document not found.")
 
-        if document.get("status") != "ready":
+        if document.get("status") != "ready" and (document.get("total_chunks") or 0) <= 0:
             latency = {
                 "embedding_ms": 0,
                 "retrieval_ms": 0,
@@ -117,7 +117,7 @@ def ask_question(
                 "latency": latency,
             }
 
-        if (document.get("total_chunks") or 0) <= 0:
+        if document.get("status") == "ready" and (document.get("total_chunks") or 0) <= 0:
             context = (
                 f"Uploaded document: {document.get('filename') or 'PDF'}.\n"
                 "The fast preview completed, but no searchable text chunks were extracted. "

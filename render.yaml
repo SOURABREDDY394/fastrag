@@ -18,12 +18,10 @@ services:
         sync: false
       - key: GROQ_MODEL
         value: llama-3.1-8b-instant
-      - key: MAX_LARGE_FILE_INDEX_PAGES
-        value: 1
-      - key: MAX_INDEX_SECONDS
-        value: 60
+      - key: PDF_BATCH_SIZE
+        value: 10
       - key: MAX_INDEX_CHUNKS
-        value: 30
+        value: 100000
       - key: OCR_SCALE
         value: 0.9
       - key: OCR_TIMEOUT_SECONDS

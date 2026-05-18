@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { PDFDocument } from "pdf-lib";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -21,9 +20,6 @@ import UploadCard from "./components/UploadCard";
 import { askQuestion, getDocumentStatus, uploadPdf } from "./services/api";
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
-const FAST_INDEX_BYTES = 50 * 1024 * 1024;
-const DEFAULT_RANGE_PAGES = 5;
-const MAX_RANGE_PAGES = 10;
 
 const storyStages = [
   {
@@ -129,38 +125,6 @@ function simplifyDocumentError(errorMessage) {
   }
 
   return errorMessage;
-}
-
-async function createUploadPdf(file, pageRange) {
-  if (file.size <= FAST_INDEX_BYTES) {
-    return { file, pageOffset: 0 };
-  }
-
-  const sourcePdf = await PDFDocument.load(await file.arrayBuffer(), {
-    ignoreEncryption: true,
-  });
-  const totalPages = sourcePdf.getPageCount();
-  const startPage = Math.max(1, Math.min(pageRange.start, totalPages));
-  const endPage = Math.max(
-    startPage,
-    Math.min(pageRange.end, totalPages, startPage + MAX_RANGE_PAGES - 1),
-  );
-  const fastPdf = await PDFDocument.create();
-  const pageIndexes = Array.from({ length: endPage - startPage + 1 }, (_, index) => startPage - 1 + index);
-  const copiedPages = await fastPdf.copyPages(sourcePdf, pageIndexes);
-
-  copiedPages.forEach((page) => fastPdf.addPage(page));
-
-  const fastPdfBytes = await fastPdf.save({ useObjectStreams: true });
-  const fastPdfName = file.name.replace(/\.pdf$/i, "") + `-pages-${startPage}-${endPage}.pdf`;
-
-  return {
-    file: new File([fastPdfBytes], fastPdfName, {
-      type: "application/pdf",
-      lastModified: Date.now(),
-    }),
-    pageOffset: startPage - 1,
-  };
 }
 
 function MiniCard({ type }) {
@@ -457,7 +421,6 @@ function App() {
   const [documentStatus, setDocumentStatus] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [pageRange, setPageRange] = useState({ start: 1, end: DEFAULT_RANGE_PAGES });
 
   const [question, setQuestion] = useState("");
   const [fastMode, setFastMode] = useState(false);
@@ -468,6 +431,7 @@ function App() {
   const uploadedDocumentId = uploadResult?.document_id || "";
   const isDocumentReady =
     documentStatus?.status === "ready" ||
+    (documentStatus?.status === "processing" && (documentStatus?.total_chunks || 0) > 0) ||
     (documentStatus?.status === "processing" &&
       documentStatus?.total_pages > 0 &&
       documentStatus?.processed_pages >= documentStatus?.total_pages);
@@ -515,7 +479,6 @@ function App() {
 
   function handleFileSelect(file) {
     setSelectedFile(file);
-    setPageRange({ start: 1, end: DEFAULT_RANGE_PAGES });
     setUploadResult(null);
     setDocumentStatus(null);
     setUploadError("");
@@ -562,10 +525,7 @@ function App() {
 
     try {
       setIsUploading(true);
-      const uploadPayload = await createUploadPdf(selectedFile, pageRange);
-      const result = await uploadPdf(uploadPayload.file, {
-        pageOffset: uploadPayload.pageOffset,
-      });
+      const result = await uploadPdf(selectedFile);
       setUploadResult(result);
       setDocumentStatus({
         document_id: result.document_id,
@@ -638,8 +598,6 @@ function App() {
             documentStatus,
             uploadError,
             isUploading,
-            pageRange,
-            onPageRangeChange: setPageRange,
             onFileSelect: handleFileSelect,
             onClearFile: handleClearFile,
             onSubmit: handleUpload,
