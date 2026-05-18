@@ -21,6 +21,18 @@ MAX_LARGE_FILE_INDEX_PAGES = int(os.getenv("MAX_LARGE_FILE_INDEX_PAGES", "1"))
 LARGE_FILE_BYTES = int(os.getenv("LARGE_FILE_MB", "100")) * 1024 * 1024
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "250"))
 MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "60"))
+FAST_INDEX_SUFFIX = "-fast-index.pdf"
+
+
+def build_fast_preview_text(filename: str, page_number: int) -> str:
+    original_filename = filename.replace(FAST_INDEX_SUFFIX, ".pdf")
+    return (
+        f"{original_filename} is a large scanned PDF. "
+        f"Fast preview indexing was enabled for page {page_number}. "
+        "The document was accepted successfully, but full OCR text was not extracted "
+        "during the instant preview pass. Ask general questions, or upload a smaller "
+        "chapter/section for detailed page-grounded answers."
+    )
 
 
 def process_pdf_document(document_id: str, file_path: str, filename: str) -> None:
@@ -86,9 +98,17 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                     },
                 )
                 page = document.load_page(page_index)
-                extracted_page = extract_text_from_page(page, page_number)
-                page_text = extracted_page["text"]
-                extraction_method = extracted_page["method"]
+                if filename.lower().endswith(FAST_INDEX_SUFFIX):
+                    page_text = page.get_text("text").strip()
+                    extraction_method = "text"
+
+                    if len(page_text) <= 30:
+                        page_text = build_fast_preview_text(filename, page_number)
+                        extraction_method = "fast-preview"
+                else:
+                    extracted_page = extract_text_from_page(page, page_number)
+                    page_text = extracted_page["text"]
+                    extraction_method = extracted_page["method"]
 
                 if extraction_method == "ocr":
                     ocr_pages_count += 1
