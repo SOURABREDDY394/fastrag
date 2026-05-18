@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import time
 
 import fitz
@@ -22,16 +23,26 @@ LARGE_FILE_BYTES = int(os.getenv("LARGE_FILE_MB", "100")) * 1024 * 1024
 MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "250"))
 MAX_INDEX_SECONDS = int(os.getenv("MAX_INDEX_SECONDS", "60"))
 FAST_INDEX_SUFFIX = "-fast-index.pdf"
+RANGE_INDEX_PATTERN = re.compile(r"-pages-\d+-\d+\.pdf$", re.IGNORECASE)
+
+
+def is_fast_range_file(filename: str) -> bool:
+    lowered_filename = filename.lower()
+    return lowered_filename.endswith(FAST_INDEX_SUFFIX) or bool(
+        RANGE_INDEX_PATTERN.search(lowered_filename)
+    )
 
 
 def build_fast_preview_text(filename: str, page_number: int) -> str:
-    original_filename = filename.replace(FAST_INDEX_SUFFIX, ".pdf")
+    original_filename = RANGE_INDEX_PATTERN.sub(".pdf", filename).replace(
+        FAST_INDEX_SUFFIX, ".pdf"
+    )
     return (
         f"{original_filename} is a large scanned PDF. "
-        f"Fast preview indexing was enabled for page {page_number}. "
-        "The document was accepted successfully, but full OCR text was not extracted "
-        "during the instant preview pass. Ask general questions, or upload a smaller "
-        "chapter/section for detailed page-grounded answers."
+        f"Page {page_number} was included in the selected range, but no embedded text "
+        "was available on that page. This usually means the page is scanned/image-only. "
+        "The page range was accepted successfully; use a text-based PDF for instant "
+        "grounded answers or run a dedicated OCR pass for this section."
     )
 
 
@@ -105,13 +116,13 @@ def process_pdf_document(
                     },
                 )
                 page = document.load_page(page_index)
-                if filename.lower().endswith(FAST_INDEX_SUFFIX):
+                if is_fast_range_file(filename):
                     page_text = page.get_text("text").strip()
                     extraction_method = "text"
 
                     if len(page_text) <= 30:
                         page_text = build_fast_preview_text(filename, page_number)
-                        extraction_method = "fast-preview"
+                        extraction_method = "fast-range"
                 else:
                     extracted_page = extract_text_from_page(page, page_number)
                     page_text = extracted_page["text"]
