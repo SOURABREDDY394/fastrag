@@ -20,6 +20,7 @@ function QuestionCard({
   onSubmit,
 }) {
   const isReady = documentStatus?.status === "ready";
+  const isFailed = documentStatus?.status === "failed";
   const isAskDisabled = !documentId || !isReady || !question.trim() || isAsking;
 
   function handleQuestionChange(value) {
@@ -77,7 +78,9 @@ function QuestionCard({
             ? "Upload a PDF first to start asking questions."
             : isReady
               ? "Ready to answer questions from your uploaded PDF."
-              : "Your PDF is being indexed. You can ask questions once it is ready."}
+              : isFailed
+                ? "PDF processing failed. Upload another PDF to ask questions."
+                : "Your PDF is being indexed. You can ask questions once it is ready."}
         </p>
       </div>
 
