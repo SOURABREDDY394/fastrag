@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PDFDocument } from "pdf-lib";
 import {
   ArrowDown,
   ArrowUpRight,
@@ -20,6 +21,8 @@ import UploadCard from "./components/UploadCard";
 import { askQuestion, getDocumentStatus, uploadPdf } from "./services/api";
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+const FAST_INDEX_BYTES = 50 * 1024 * 1024;
+const FAST_INDEX_PAGES = 8;
 
 const storyStages = [
   {
@@ -125,6 +128,32 @@ function simplifyDocumentError(errorMessage) {
   }
 
   return errorMessage;
+}
+
+async function createFastIndexPdf(file) {
+  if (file.size <= FAST_INDEX_BYTES) {
+    return file;
+  }
+
+  const sourcePdf = await PDFDocument.load(await file.arrayBuffer(), {
+    ignoreEncryption: true,
+  });
+  const fastPdf = await PDFDocument.create();
+  const pageIndexes = Array.from(
+    { length: Math.min(sourcePdf.getPageCount(), FAST_INDEX_PAGES) },
+    (_, index) => index,
+  );
+  const copiedPages = await fastPdf.copyPages(sourcePdf, pageIndexes);
+
+  copiedPages.forEach((page) => fastPdf.addPage(page));
+
+  const fastPdfBytes = await fastPdf.save({ useObjectStreams: true });
+  const fastPdfName = file.name.replace(/\.pdf$/i, "") + "-fast-index.pdf";
+
+  return new File([fastPdfBytes], fastPdfName, {
+    type: "application/pdf",
+    lastModified: Date.now(),
+  });
 }
 
 function MiniCard({ type }) {
@@ -520,7 +549,8 @@ function App() {
 
     try {
       setIsUploading(true);
-      const result = await uploadPdf(selectedFile);
+      const uploadFile = await createFastIndexPdf(selectedFile);
+      const result = await uploadPdf(uploadFile);
       setUploadResult(result);
       setDocumentStatus({
         document_id: result.document_id,

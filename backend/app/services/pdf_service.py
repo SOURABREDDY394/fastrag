@@ -1,4 +1,5 @@
 import fitz
+import os
 from fastapi import HTTPException
 from PIL import Image
 import pytesseract
@@ -6,6 +7,8 @@ from pytesseract import TesseractNotFoundError
 from pathlib import Path
 
 MIN_TEXT_LENGTH = 30
+OCR_SCALE = float(os.getenv("OCR_SCALE", "1.2"))
+OCR_TIMEOUT_SECONDS = int(os.getenv("OCR_TIMEOUT_SECONDS", "8"))
 OCR_REQUIRED_MESSAGE = (
     "This PDF appears to be scanned. OCR is required but Tesseract is not installed."
 )
@@ -28,9 +31,9 @@ def configure_tesseract_path() -> None:
 def extract_text_with_ocr(page) -> str:
     try:
         configure_tesseract_path()
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+        pix = page.get_pixmap(matrix=fitz.Matrix(OCR_SCALE, OCR_SCALE), alpha=False)
         image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        return pytesseract.image_to_string(image).strip()
+        return pytesseract.image_to_string(image, timeout=OCR_TIMEOUT_SECONDS).strip()
     except TesseractNotFoundError as exc:
         raise RuntimeError(OCR_REQUIRED_MESSAGE) from exc
     except Exception as exc:
