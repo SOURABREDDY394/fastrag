@@ -487,7 +487,7 @@ function App() {
         }
       } catch (error) {
         if (isActive) {
-          setUploadError(simplifyError(error, "Could not fetch document status."));
+          setUploadError("Backend is waking up or redeploying. Retrying document status...");
         }
       }
     }
