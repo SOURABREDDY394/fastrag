@@ -174,7 +174,7 @@ function UploadCard({
         <section className="mt-4 border border-sky-200 bg-sky-50 p-4">
           <h3 className="text-sm font-black text-sky-950">Document uploaded. Indexing started.</h3>
           <p className="mt-1 text-sm leading-6 text-sky-800">
-            Your PDF is being indexed. Huge PDFs are uploaded as a tiny fast preview first.
+            Your PDF is being indexed. Huge PDFs are uploaded as a one-page instant preview first.
           </p>
 
           <div className="mt-4">
@@ -215,7 +215,7 @@ function UploadCard({
         {isUploading ? "Processing PDF..." : "Upload PDF"}
       </button>
       <p className="mt-3 text-center text-xs text-slate-500">
-        Huge PDFs are converted to a tiny fast preview before upload.
+        Huge PDFs are converted to a one-page instant preview before upload.
       </p>
     </form>
   );

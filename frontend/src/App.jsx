@@ -22,7 +22,7 @@ import { askQuestion, getDocumentStatus, uploadPdf } from "./services/api";
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const FAST_INDEX_BYTES = 50 * 1024 * 1024;
-const FAST_INDEX_PAGES = 2;
+const FAST_INDEX_PAGES = 1;
 
 const storyStages = [
   {
@@ -480,15 +480,15 @@ function App() {
 
         if (status.status === "failed") {
           setUploadError(simplifyDocumentError(status.error_message));
+        } else {
+          setUploadError("");
         }
 
         if (status.status === "ready" || status.status === "failed") {
           window.clearInterval(intervalId);
         }
       } catch (error) {
-        if (isActive) {
-          setUploadError("Backend is waking up or redeploying. Retrying document status...");
-        }
+        console.warn("Could not fetch document status yet:", error);
       }
     }
 
