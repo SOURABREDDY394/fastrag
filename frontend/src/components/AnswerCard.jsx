@@ -1,4 +1,8 @@
 import { BookOpen, Loader2, Timer } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+import MermaidDiagram from "./MermaidDiagram";
 
 function formatLatency(latency) {
   if (!latency?.total_ms && latency?.total_ms !== 0) {
@@ -38,8 +42,41 @@ function AnswerCard({ answer, latency, isLoading }) {
           Searching document...
         </div>
       ) : answer ? (
-        <article className="mt-6 border border-charcoal/10 bg-[#fbfaf7] p-5">
-          <div className="whitespace-pre-wrap text-sm leading-7 text-charcoal sm:text-base">{answer}</div>
+        <article className="answer-content mt-6 border border-charcoal/10 bg-[#fbfaf7] p-5 sm:p-7">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              pre({ children }) {
+                return children;
+              },
+              code({ className, children, ...props }) {
+                const language = /language-(\w+)/.exec(className || "")?.[1];
+                const content = String(children).replace(/\n$/, "");
+
+                if (language === "mermaid") {
+                  return <MermaidDiagram chart={content} />;
+                }
+
+                if (className) {
+                  return (
+                    <pre>
+                      <code className={className} {...props}>
+                        {children}
+                      </code>
+                    </pre>
+                  );
+                }
+
+                return (
+                  <code className={className} {...props}>
+                    {children}
+                  </code>
+                );
+              },
+            }}
+          >
+            {answer}
+          </ReactMarkdown>
         </article>
       ) : (
         <div className="mt-6 flex flex-col items-center justify-center border border-dashed border-charcoal/20 bg-[#fbfaf7] px-5 py-10 text-center">

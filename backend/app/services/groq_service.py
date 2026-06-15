@@ -1,4 +1,5 @@
 import os
+import re
 from functools import lru_cache
 
 from dotenv import load_dotenv
@@ -8,6 +9,14 @@ from groq import Groq
 load_dotenv()
 
 GROQ_MODEL = "llama-3.1-8b-instant"
+MERMAID_BLOCK_PATTERN = re.compile(
+    r"```mermaid\s*([\s\S]*?)```",
+    re.IGNORECASE,
+)
+DIAGRAM_REQUEST_TERMS = ("diagram", "flowchart", "flow chart", "architecture")
+MERMAID_NODE_PATTERN = re.compile(
+    r"^[A-Za-z][A-Za-z_]*(?:\[[^\[\]]+\])?$"
+)
 
 SYSTEM_PROMPT = """You are FastRAG, an exam-focused study assistant.
 
@@ -23,6 +32,28 @@ Answer style:
 - Keep answers easy to memorize and write in exams.
 - Explain each important point instead of listing one-line keywords.
 - Prefer complete study notes over brief summaries unless Fast Mode is enabled.
+- Read the exact question carefully and follow its command word: define, explain, compare, discuss, justify, list, trace, or describe.
+- Prioritize the requested topic. Do not pad the answer with a generic introduction to the entire subject.
+- Explain why and how, not only what.
+
+Formatting rules:
+- Return clean Markdown.
+- Use # for the answer title and ## or ### for sections.
+- Use a Markdown table for genuine comparisons only.
+- Do not write raw page references inside the answer; the application shows sources separately.
+- Do not use HTML.
+
+Diagram rules:
+- Add a Mermaid diagram only when it improves understanding of a process, algorithm, architecture, hierarchy, decision flow, or lifecycle.
+- Do not add a diagram for a simple definition or ordinary descriptive answer.
+- Use a fenced code block beginning with ```mermaid and exactly `flowchart TD` syntax.
+- Use only plain `-->` arrows. Do not use edge labels, numbered moves, player numbers, position numbers, styling directives, or left-to-right graphs.
+- Keep node labels short and use only facts supported by the provided document context.
+- The diagram must summarize steps or relationships already explained in the answer.
+- Use generic concept labels. Never introduce arbitrary numbers, named examples, branches, or stages that are not explicitly supported by the context.
+- For an algorithm, show its actual control flow: input, repeated decision or processing steps, and result.
+- Use at most one diagram in an exam answer and at most two in unit notes.
+- Never invent missing stages or relationships to make a diagram look complete.
 
 Grounding rules:
 1. First use the uploaded document context.
@@ -38,6 +69,199 @@ If no relevant context is found, say:
 Then provide a general exam-ready answer.
 
 Keep the answer useful for students preparing for exams."""
+
+
+def normalize_mermaid_diagram(diagram: str) -> str:
+    lines = [line.strip() for line in diagram.splitlines() if line.strip()]
+    if not lines or lines[0].lower() != "flowchart td":
+        return diagram.strip()
+
+    phrase_ids: dict[str, str] = {}
+
+    def normalize_node(node: str) -> str:
+        clean_node = node.strip()
+        if MERMAID_NODE_PATTERN.fullmatch(clean_node):
+            return clean_node
+
+        label = re.sub(r"[\[\]{}()]", "", clean_node).strip()
+        if not label:
+            return clean_node
+
+        if label not in phrase_ids:
+            phrase_ids[label] = chr(ord("A") + len(phrase_ids))
+        return f"{phrase_ids[label]}[{label}]"
+
+    normalized_lines = ["flowchart TD"]
+    for line in lines[1:]:
+        if "-->" not in line or "|" in line:
+            normalized_lines.append(line)
+            continue
+
+        left_node, right_node = line.split("-->", 1)
+        normalized_lines.append(
+            f"{normalize_node(left_node)} --> {normalize_node(right_node)}"
+        )
+
+    return "\n".join(normalized_lines)
+
+
+def is_reliable_mermaid(diagram: str) -> bool:
+    lines = [line.strip() for line in diagram.splitlines() if line.strip()]
+
+    if not lines or lines[0].lower() != "flowchart td":
+        return False
+
+    arrow_lines = [line for line in lines[1:] if "-->" in line]
+    suspicious_content = re.search(
+        r"\||\d|classDef|style\s+|graph\s+lr",
+        diagram,
+        re.IGNORECASE,
+    )
+    valid_arrow_syntax = all(
+        all(
+            MERMAID_NODE_PATTERN.fullmatch(node.strip())
+            for node in line.split("-->", 1)
+        )
+        for line in arrow_lines
+    )
+
+    return (
+        2 <= len(arrow_lines) <= 12
+        and suspicious_content is None
+        and valid_arrow_syntax
+    )
+
+
+def remove_unreliable_mermaid(answer: str) -> str:
+    def validate_or_remove(match: re.Match) -> str:
+        diagram = normalize_mermaid_diagram(match.group(1))
+        if not is_reliable_mermaid(diagram):
+            return ""
+        return f"```mermaid\n{diagram}\n```"
+
+    cleaned_answer = MERMAID_BLOCK_PATTERN.sub(validate_or_remove, answer)
+    return re.sub(r"\n{3,}", "\n\n", cleaned_answer).strip()
+
+
+def build_step_flowchart(answer: str) -> str:
+    section_lines: list[str] = []
+    in_process_section = False
+
+    for raw_line in answer.splitlines():
+        line = raw_line.strip()
+
+        if line.startswith("#"):
+            heading = line.lstrip("#").strip().lower()
+            in_process_section = any(
+                term in heading
+                for term in ("step", "working", "process", "procedure", "algorithm")
+            )
+            continue
+
+        if in_process_section:
+            section_lines.append(line)
+
+    step_labels: list[str] = []
+    for line in section_lines:
+        match = re.match(
+            r"^(?:[-*]|\d+[.)])\s+(?:\*\*)?(.+?)(?:\*\*)?(?::\s|:\s*$|$)",
+            line,
+        )
+        if not match:
+            continue
+
+        label = match.group(1)
+        label = re.sub(r"\*\*|__|`", "", label)
+        label = re.split(r"[:.;]", label, maxsplit=1)[0]
+        label = re.sub(r"[^A-Za-z\s-]", "", label)
+        label = re.sub(r"\s+", " ", label).strip()
+
+        if 2 <= len(label.split()) <= 10 and label not in step_labels:
+            step_labels.append(label)
+
+        if len(step_labels) == 7:
+            break
+
+    if len(step_labels) < 3:
+        return ""
+
+    diagram_lines = ["flowchart TD"]
+    for index, label in enumerate(step_labels):
+        node_id = chr(ord("A") + index)
+        if index == 0:
+            diagram_lines.append(f"{node_id}[{label}]")
+            continue
+
+        previous_id = chr(ord("A") + index - 1)
+        diagram_lines.append(f"{previous_id} --> {node_id}[{label}]")
+
+    diagram = "\n".join(diagram_lines)
+    if not is_reliable_mermaid(diagram):
+        return ""
+
+    return f"## Concept Flow\n\n```mermaid\n{diagram}\n```"
+
+
+def generate_grounded_diagram(
+    client: Groq,
+    question: str,
+    answer: str,
+) -> str:
+    diagram_prompt = f"""Create one compact Mermaid flowchart using only the explanation below.
+
+Question:
+{question}
+
+Grounded explanation:
+{answer[:6000]}
+
+Return only a fenced Mermaid block.
+
+Strict format:
+```mermaid
+flowchart TD
+A[Short input label] --> B[Short documented step]
+B --> C[Short documented step]
+C --> D[Short result label]
+```
+
+Rules:
+- Use 4 to 8 nodes.
+- Use only plain --> arrows.
+- Use no edge labels, numbers, styling directives, examples, player names, or position names.
+- Do not introduce any step or relationship absent from the grounded explanation.
+- Use flowchart TD only."""
+
+    try:
+        response = client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You convert grounded study explanations into minimal Mermaid "
+                        "flowcharts. Return only the requested Mermaid block."
+                    ),
+                },
+                {"role": "user", "content": diagram_prompt},
+            ],
+            max_tokens=300,
+            temperature=0,
+        )
+    except Exception as exc:
+        print(f"[FastRAG] Diagram generation skipped: {exc}")
+        return ""
+
+    diagram_response = response.choices[0].message.content or ""
+    match = MERMAID_BLOCK_PATTERN.search(diagram_response)
+    if not match:
+        return ""
+
+    diagram = normalize_mermaid_diagram(match.group(1))
+    if not is_reliable_mermaid(diagram):
+        return ""
+
+    return f"## Concept Flow\n\n```mermaid\n{diagram}\n```"
 
 
 @lru_cache
@@ -84,6 +308,7 @@ def generate_answer_from_context(
 - Explain every important concept in 2-4 sentences, not as bare keywords.
 - Include definitions, methods, steps, classifications, advantages, limitations, and examples found in the document.
 - Add an 'Important Exam Questions' section based only on the unit topics.
+- Add one or two document-grounded Mermaid diagrams when the unit contains a process, search procedure, architecture, reasoning flow, or learning workflow that benefits from visualization.
 - End with a rapid-revision checklist and a concise unit conclusion.
 - Do not add unrelated general knowledge or invent material missing from the document."""
     elif answer_mode == "summary":
@@ -117,6 +342,7 @@ def generate_answer_from_context(
 - Explain every main point in 2-4 sentences; do not give only one-line bullets.
 - Include classifications, working, steps, features, advantages, limitations, or applications when present in the document.
 - Include a document-grounded example when available.
+- Include one document-grounded Mermaid diagram when the topic is a process, algorithm, architecture, hierarchy, or decision flow and a diagram would genuinely help.
 - Finish with a concise exam-ready conclusion.
 - Aim for roughly 700-1200 words when the retrieved evidence is sufficient."""
             )
@@ -138,6 +364,8 @@ Instructions:
 - End with a short exam-ready conclusion.
 - Never respond with only page numbers or tell the student where key points are located.
 - Directly explain the requested content.
+- Keep the answer internally consistent and avoid repeating the same point under multiple headings.
+- If the retrieved evidence does not support part of the question, state the limitation instead of guessing.
 
 {style_instruction}"""
 
@@ -194,4 +422,21 @@ Instructions:
             detail="Groq returned an empty answer.",
         )
 
-    return answer.strip()
+    cleaned_answer = remove_unreliable_mermaid(answer.strip())
+    requested_diagram = any(
+        term in clean_question.lower()
+        for term in DIAGRAM_REQUEST_TERMS
+    )
+
+    if requested_diagram and "```mermaid" not in cleaned_answer:
+        diagram_section = generate_grounded_diagram(
+            client=get_groq_client(),
+            question=clean_question,
+            answer=cleaned_answer,
+        )
+        if not diagram_section:
+            diagram_section = build_step_flowchart(cleaned_answer)
+        if diagram_section:
+            cleaned_answer = f"{cleaned_answer}\n\n{diagram_section}"
+
+    return cleaned_answer
