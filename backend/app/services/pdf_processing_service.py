@@ -19,8 +19,8 @@ from app.services.embedding_service import generate_embeddings_for_chunks
 from app.services.pdf_service import OCR_REQUIRED_MESSAGE, extract_text_from_page
 
 logger = logging.getLogger(__name__)
-PDF_BATCH_SIZE = int(os.getenv("PDF_BATCH_SIZE", "3"))
-MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "100000"))
+PDF_BATCH_SIZE = int(os.getenv("PDF_BATCH_SIZE", "5"))
+MAX_INDEX_CHUNKS = int(os.getenv("MAX_INDEX_CHUNKS", "0"))
 
 
 def get_failed_pages_message(failed_pages: list[int]) -> str | None:
@@ -49,7 +49,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
         update_document(
             document_id,
             {
-                "status": "extracting",
+                "status": "processing",
                 "error_message": None,
                 "total_chunks": chunks_inserted,
             },
@@ -71,7 +71,7 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
             )
 
             for batch_start in range(start_page_index, total_pages, PDF_BATCH_SIZE):
-                if chunks_inserted >= MAX_INDEX_CHUNKS:
+                if MAX_INDEX_CHUNKS > 0 and chunks_inserted >= MAX_INDEX_CHUNKS:
                     logger.info(
                         "[FastRAG] indexing chunk limit reached at %s chunks: %s",
                         chunks_inserted,
@@ -132,8 +132,9 @@ def process_pdf_document(document_id: str, file_path: str, filename: str) -> Non
                 print("Chunks created for this batch", len(batch_chunks), flush=True)
 
                 if batch_chunks:
-                    remaining_chunks = MAX_INDEX_CHUNKS - chunks_inserted
-                    batch_chunks = batch_chunks[:remaining_chunks]
+                    if MAX_INDEX_CHUNKS > 0:
+                        remaining_chunks = MAX_INDEX_CHUNKS - chunks_inserted
+                        batch_chunks = batch_chunks[:remaining_chunks]
                     embedded_chunks = generate_embeddings_for_chunks(batch_chunks)
                     chunk_rows = build_chunk_rows(document_id, embedded_chunks)
                     inserted_count = batch_insert_chunks(chunk_rows)

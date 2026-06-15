@@ -6,7 +6,11 @@ from fastapi import HTTPException
 from app.services.document_service import get_document
 from app.services.embedding_service import generate_embedding
 from app.services.groq_service import generate_answer_from_context
-from app.services.search_service import search_similar_chunks_by_embedding
+from app.services.search_service import (
+    get_document_overview_chunks,
+    get_document_unit_chunks,
+    search_similar_chunks_by_embedding,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +18,14 @@ NO_CHUNKS_MESSAGE = (
     "No relevant document chunks found. Please upload a PDF first or ask a "
     "question related to the uploaded documents."
 )
-MAX_MATCH_COUNT = 5
+MAX_MATCH_COUNT = 7
 FAST_MODE_MATCH_COUNT = 3
-MAX_CONTEXT_CHARS = 7000
+MAX_CONTEXT_CHARS = 11000
 FAST_MODE_CONTEXT_CHARS = 4500
+SUMMARY_CONTEXT_CHARS = 15000
+SUMMARY_SAMPLE_COUNT = 22
+UNIT_CONTEXT_CHARS = 18000
+UNIT_SAMPLE_COUNT = 14
 
 
 def elapsed_ms(start_time: float) -> int:
@@ -84,11 +92,17 @@ def log_latency(latency: dict) -> None:
     logger.info("[FastRAG] Total: %sms", latency["total_ms"])
 
 
+def resolve_answer_mode(question: str, requested_mode: str) -> str:
+    return requested_mode
+
+
 def ask_question(
     question: str,
     document_id: str | None = None,
     match_count: int = 5,
     fast_mode: bool = False,
+    answer_mode: str = "exam",
+    unit_number: int | None = None,
 ) -> dict:
     total_start_time = time.perf_counter()
     clean_question = question.strip()
@@ -145,22 +159,55 @@ def ask_question(
                 "latency": latency,
             }
 
+    effective_answer_mode = resolve_answer_mode(clean_question, answer_mode)
+    if effective_answer_mode == "unit" and unit_number is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Choose a unit number before creating unit notes.",
+        )
     effective_match_count = (
         FAST_MODE_MATCH_COUNT if fast_mode else min(match_count, MAX_MATCH_COUNT)
     )
-    max_context_chars = FAST_MODE_CONTEXT_CHARS if fast_mode else MAX_CONTEXT_CHARS
-
-    embedding_start_time = time.perf_counter()
-    question_embedding = generate_embedding(clean_question)
-    embedding_ms = elapsed_ms(embedding_start_time)
-
-    retrieval_start_time = time.perf_counter()
-    chunks = search_similar_chunks_by_embedding(
-        query_embedding=question_embedding,
-        document_id=document_id,
-        match_count=effective_match_count,
+    max_context_chars = (
+        SUMMARY_CONTEXT_CHARS
+        if effective_answer_mode == "summary"
+        else (
+            UNIT_CONTEXT_CHARS
+            if effective_answer_mode == "unit"
+            else (FAST_MODE_CONTEXT_CHARS if fast_mode else MAX_CONTEXT_CHARS)
+        )
     )
-    retrieval_ms = elapsed_ms(retrieval_start_time)
+
+    embedding_ms = 0
+    retrieval_ms = 0
+    unit_page_range = None
+    if effective_answer_mode == "unit":
+        retrieval_start_time = time.perf_counter()
+        chunks, unit_page_range = get_document_unit_chunks(
+            document_id=document_id,
+            unit_number=unit_number,
+            sample_count=UNIT_SAMPLE_COUNT,
+        )
+        retrieval_ms = elapsed_ms(retrieval_start_time)
+    elif effective_answer_mode == "summary":
+        retrieval_start_time = time.perf_counter()
+        chunks = get_document_overview_chunks(
+            document_id=document_id,
+            sample_count=SUMMARY_SAMPLE_COUNT,
+        )
+        retrieval_ms = elapsed_ms(retrieval_start_time)
+    else:
+        embedding_start_time = time.perf_counter()
+        question_embedding = generate_embedding(clean_question)
+        embedding_ms = elapsed_ms(embedding_start_time)
+
+        retrieval_start_time = time.perf_counter()
+        chunks = search_similar_chunks_by_embedding(
+            query_embedding=question_embedding,
+            document_id=document_id,
+            match_count=effective_match_count,
+        )
+        retrieval_ms = elapsed_ms(retrieval_start_time)
 
     context_start_time = time.perf_counter()
     context = build_context_from_chunks(chunks, max_chars=max_context_chars)
@@ -188,7 +235,10 @@ def ask_question(
     answer = generate_answer_from_context(
         question=clean_question,
         context=context,
-        fast_mode=fast_mode,
+        fast_mode=fast_mode and effective_answer_mode == "exam",
+        answer_mode=effective_answer_mode,
+        unit_number=unit_number,
+        unit_page_range=unit_page_range,
     )
     generation_ms = elapsed_ms(generation_start_time)
 
@@ -206,4 +256,7 @@ def ask_question(
         "sources": sources,
         "retrieved_chunks": retrieved_chunks,
         "latency": latency,
+        "answer_mode": effective_answer_mode,
+        "unit_number": unit_number if effective_answer_mode == "unit" else None,
+        "unit_page_range": unit_page_range,
     }

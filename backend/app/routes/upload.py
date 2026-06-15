@@ -6,7 +6,11 @@ from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 
-from app.services.document_service import create_uploaded_document, update_document
+from app.services.document_service import (
+    create_uploaded_document,
+    mark_document_failed,
+    update_document,
+)
 from app.services.indexing_jobs import register_document_file, run_indexing_job
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
@@ -31,9 +35,14 @@ async def upload_pdf(
     safe_filename = Path(file.filename or "uploaded.pdf").name
     file_path = UPLOAD_DIR / f"{uuid4()}_{safe_filename}"
     upload_start_time = time.perf_counter()
+    document_id = None
+    indexing_scheduled = False
 
     try:
         print("Upload received", safe_filename, flush=True)
+        document_id = create_uploaded_document(filename=safe_filename)
+        print("Document row created", document_id, flush=True)
+
         bytes_written = 0
         with file_path.open("wb") as buffer:
             while chunk := await file.read(1024 * 1024):
@@ -56,9 +65,7 @@ async def upload_pdf(
             file_path.unlink(missing_ok=True)
             raise HTTPException(status_code=400, detail="Uploaded PDF is empty.")
 
-        document_id = create_uploaded_document(filename=safe_filename)
-        print("Document row created", document_id, flush=True)
-        update_document(document_id, {"status": "queued"})
+        update_document(document_id, {"status": "processing"})
         register_document_file(document_id, str(file_path))
         print("ADDING BACKGROUND INDEXING TASK", document_id, str(file_path), flush=True)
 
@@ -68,6 +75,7 @@ async def upload_pdf(
             str(file_path),
             safe_filename,
         )
+        indexing_scheduled = True
 
         logger.info(
             "[FastRAG] Upload accepted in %.2f seconds: %s",
@@ -79,11 +87,17 @@ async def upload_pdf(
             "message": "PDF uploaded. Processing started.",
             "document_id": document_id,
             "filename": safe_filename,
-            "status": "queued",
+            "status": "processing",
         }
-    except HTTPException:
+    except HTTPException as exc:
+        if document_id and not indexing_scheduled:
+            mark_document_failed(document_id, str(exc.detail))
+        file_path.unlink(missing_ok=True)
         raise
     except Exception as exc:
+        if document_id and not indexing_scheduled:
+            mark_document_failed(document_id, str(exc))
+        file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"PDF upload failed: {exc}") from exc
     finally:
         await file.close()

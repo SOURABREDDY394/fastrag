@@ -9,6 +9,33 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 100
 
 
+def format_supabase_error(action: str, exc: Exception) -> str:
+    error_text = str(exc)
+    normalized_error = error_text.lower()
+    connection_markers = (
+        "getaddrinfo failed",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "nodename nor servname provided",
+    )
+
+    if any(marker in normalized_error for marker in connection_markers):
+        return (
+            f"Supabase is unreachable while trying to {action}. "
+            "Check that SUPABASE_URL points to an active Supabase project "
+            "and that the computer is online."
+        )
+
+    if "row-level security" in normalized_error or "'42501'" in normalized_error:
+        return (
+            f"Supabase blocked permission to {action}. The configured publishable "
+            "key is restricted by Row Level Security. Set "
+            "SUPABASE_SERVICE_ROLE_KEY in the backend .env file."
+        )
+
+    return f"Supabase failed while trying to {action}: {error_text}"
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -38,7 +65,7 @@ def create_uploaded_document(filename: str) -> str:
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create document row in Supabase: {exc}",
+            detail=format_supabase_error("create the document record", exc),
         ) from exc
 
     if not response.data:
@@ -66,13 +93,35 @@ def get_document(document_id: str) -> dict | None:
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch document status from Supabase: {exc}",
+            detail=format_supabase_error("fetch the document status", exc),
         ) from exc
 
     if not response.data:
         return None
 
     return response.data[0]
+
+
+def list_documents(limit: int = 50) -> list[dict]:
+    supabase = get_supabase_client()
+
+    try:
+        response = (
+            supabase.table("documents")
+            .select(
+                "id, filename, status, total_pages, processed_pages, total_chunks, error_message, uploaded_at, processed_at"
+            )
+            .order("uploaded_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=format_supabase_error("list saved documents", exc),
+        ) from exc
+
+    return response.data or []
 
 
 def update_document(document_id: str, values: dict) -> None:
@@ -83,7 +132,7 @@ def update_document(document_id: str, values: dict) -> None:
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to update document in Supabase: {exc}",
+            detail=format_supabase_error("update the document", exc),
         ) from exc
 
 
@@ -128,9 +177,9 @@ def batch_insert_chunks(chunk_rows: list[dict], batch_size: int = BATCH_SIZE) ->
         except Exception as exc:
             raise HTTPException(
                 status_code=500,
-                detail=(
-                    "Failed to insert document chunks into Supabase "
-                    f"for batch starting at index {start}: {exc}"
+                detail=format_supabase_error(
+                    f"insert document chunks for batch starting at index {start}",
+                    exc,
                 ),
             ) from exc
 

@@ -17,9 +17,15 @@ import Navbar from "./components/Navbar";
 import QuestionCard from "./components/QuestionCard";
 import SourcesCard from "./components/SourcesCard";
 import UploadCard from "./components/UploadCard";
-import { askQuestion, getDocumentStatus, uploadPdf } from "./services/api";
+import {
+  askQuestion,
+  getDocumentStatus,
+  getSavedDocuments,
+  uploadPdf,
+} from "./services/api";
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+const ACTIVE_DOCUMENT_KEY = "studyrag_active_document_id";
 
 const storyStages = [
   {
@@ -82,14 +88,32 @@ function simplifyError(error, fallbackMessage) {
   console.error("StudyRAG request failed:", error);
 
   if (error?.code === "ERR_NETWORK") {
-    return "Could not reach the backend. Check the deployed API URL and CORS settings.";
+    return "Backend is not running. Please start the FastAPI server.";
+  }
+
+  const detail = error?.response?.data?.detail;
+  const normalizedDetail = typeof detail === "string" ? detail.toLowerCase() : "";
+
+  if (
+    normalizedDetail.includes("supabase is unreachable") ||
+    normalizedDetail.includes("supabase_url") ||
+    normalizedDetail.includes("name resolution")
+  ) {
+    return "Document storage is unavailable. Check the backend Supabase settings and make sure the Supabase project is active.";
+  }
+
+  if (
+    normalizedDetail.includes("row level security") ||
+    normalizedDetail.includes("row-level security") ||
+    normalizedDetail.includes("service_role")
+  ) {
+    return "Supabase blocked document storage. Add the project's service-role key to the backend configuration.";
   }
 
   if (error?.response?.status >= 500) {
     return fallbackMessage;
   }
 
-  const detail = error?.response?.data?.detail;
   if (typeof detail === "string" && detail.toLowerCase().includes("no relevant")) {
     return "No relevant chunks found. Try asking something from the uploaded PDF.";
   }
@@ -421,15 +445,19 @@ function App() {
   const [documentStatus, setDocumentStatus] = useState(null);
   const [uploadError, setUploadError] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [savedDocuments, setSavedDocuments] = useState([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
 
   const [question, setQuestion] = useState("");
   const [fastMode, setFastMode] = useState(false);
+  const [answerMode, setAnswerMode] = useState("exam");
+  const [unitNumber, setUnitNumber] = useState(1);
   const [answerResult, setAnswerResult] = useState(null);
   const [askError, setAskError] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
   const uploadedDocumentId = uploadResult?.document_id || "";
-  const activeIndexingStatuses = ["processing", "extracting"];
+  const activeIndexingStatuses = ["processing"];
   const isDocumentReady =
     documentStatus?.status === "ready" ||
     (activeIndexingStatuses.includes(documentStatus?.status) &&
@@ -437,6 +465,79 @@ function App() {
     (activeIndexingStatuses.includes(documentStatus?.status) &&
       documentStatus?.total_pages > 0 &&
       documentStatus?.processed_pages >= documentStatus?.total_pages);
+
+  async function refreshSavedDocuments() {
+    try {
+      const documents = await getSavedDocuments();
+      const uniqueReadyDocuments = documents.reduce((saved, document) => {
+        if (document.status !== "ready" || (document.total_chunks || 0) <= 0) {
+          return saved;
+        }
+
+        const filenameKey = (document.filename || document.document_id).toLowerCase();
+        if (!saved.some((item) => item.filenameKey === filenameKey)) {
+          saved.push({ ...document, filenameKey });
+        }
+        return saved;
+      }, []);
+
+      setSavedDocuments(uniqueReadyDocuments);
+      return uniqueReadyDocuments;
+    } catch (error) {
+      console.error("Could not load saved documents:", error);
+      return [];
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  }
+
+  function activateSavedDocument(document) {
+    if (!document) {
+      localStorage.removeItem(ACTIVE_DOCUMENT_KEY);
+      setUploadResult(null);
+      setDocumentStatus(null);
+      return;
+    }
+
+    setSelectedFile(null);
+    setUploadResult({
+      document_id: document.document_id,
+      filename: document.filename,
+      status: document.status,
+    });
+    setDocumentStatus(document);
+    setUploadError("");
+    setAskError("");
+    setAnswerResult(null);
+    localStorage.setItem(ACTIVE_DOCUMENT_KEY, document.document_id);
+  }
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function loadDocumentLibrary() {
+      const documents = await refreshSavedDocuments();
+      if (!isActive) {
+        return;
+      }
+
+      const savedDocumentId = localStorage.getItem(ACTIVE_DOCUMENT_KEY);
+      const savedDocument = documents.find(
+        (document) =>
+          document.document_id === savedDocumentId && document.status !== "failed",
+      );
+
+      if (savedDocument) {
+        activateSavedDocument(savedDocument);
+      }
+    }
+
+    loadDocumentLibrary();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!uploadedDocumentId) {
@@ -464,6 +565,7 @@ function App() {
 
         if (status.status === "ready" || status.status === "failed") {
           window.clearInterval(intervalId);
+          refreshSavedDocuments();
         }
       } catch (error) {
         console.warn("Could not fetch document status yet:", error);
@@ -490,11 +592,17 @@ function App() {
 
   function handleClearFile() {
     setSelectedFile(null);
-    setUploadResult(null);
-    setDocumentStatus(null);
+    activateSavedDocument(null);
     setUploadError("");
     setAskError("");
     setAnswerResult(null);
+  }
+
+  function handleSavedDocumentSelect(documentId) {
+    const document = savedDocuments.find(
+      (savedDocument) => savedDocument.document_id === documentId,
+    );
+    activateSavedDocument(document || null);
   }
 
   async function handleUpload(event) {
@@ -520,7 +628,7 @@ function App() {
 
     if (selectedFile.size > MAX_UPLOAD_BYTES) {
       setUploadError(
-        "This PDF is too large for the deployed app. Please upload a file under 500 MB or split it into smaller PDFs.",
+        "This PDF is too large. Please upload a file under 500 MB or split it into smaller PDFs.",
       );
       return;
     }
@@ -538,6 +646,8 @@ function App() {
         total_chunks: 0,
         error_message: null,
       });
+      localStorage.setItem(ACTIVE_DOCUMENT_KEY, result.document_id);
+      refreshSavedDocuments();
     } catch (error) {
       setUploadResult(null);
       setUploadError(simplifyError(error, "Upload failed. Please try another PDF."));
@@ -573,7 +683,13 @@ function App() {
 
     try {
       setIsAsking(true);
-      const result = await askQuestion(question.trim(), uploadedDocumentId, fastMode);
+      const result = await askQuestion(
+        question.trim(),
+        uploadedDocumentId,
+        fastMode,
+        answerMode,
+        unitNumber,
+      );
       setAnswerResult(result);
     } catch (error) {
       setAskError(simplifyError(error, "Could not generate an answer. Please try again."));
@@ -600,6 +716,9 @@ function App() {
             documentStatus,
             uploadError,
             isUploading,
+            savedDocuments,
+            isLoadingDocuments,
+            onSavedDocumentSelect: handleSavedDocumentSelect,
             onFileSelect: handleFileSelect,
             onClearFile: handleClearFile,
             onSubmit: handleUpload,
@@ -611,8 +730,12 @@ function App() {
             askError,
             isAsking,
             fastMode,
+            answerMode,
+            unitNumber,
             onQuestionChange: setQuestion,
             onFastModeChange: setFastMode,
+            onAnswerModeChange: setAnswerMode,
+            onUnitNumberChange: setUnitNumber,
             onSubmit: handleAsk,
           }}
           answerProps={{

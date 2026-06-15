@@ -11,15 +11,16 @@ load_dotenv()
 @lru_cache
 def get_supabase_client() -> Client:
     supabase_url = os.getenv("SUPABASE_URL")
-    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
 
-    if not supabase_url or not service_role_key:
+    if not supabase_url or not supabase_key:
         raise HTTPException(
             status_code=500,
             detail=(
                 "Missing Supabase configuration. Set SUPABASE_URL and "
-                "SUPABASE_SERVICE_ROLE_KEY in the backend .env file."
+                "either SUPABASE_SERVICE_ROLE_KEY or SUPABASE_KEY in the "
+                "backend .env file."
             ),
         )
 
-    return create_client(supabase_url, service_role_key)
+    return create_client(supabase_url, supabase_key)

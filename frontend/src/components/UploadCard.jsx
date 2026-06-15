@@ -1,4 +1,12 @@
-import { CheckCircle2, Clipboard, CloudUpload, FileText, Upload, X } from "lucide-react";
+import {
+  BookOpen,
+  CheckCircle2,
+  Clipboard,
+  CloudUpload,
+  FileText,
+  Upload,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 
 function formatFileSize(size) {
@@ -16,6 +24,9 @@ function UploadCard({
   documentStatus,
   uploadError,
   isUploading,
+  savedDocuments,
+  isLoadingDocuments,
+  onSavedDocumentSelect,
   onFileSelect,
   onClearFile,
   onSubmit,
@@ -23,11 +34,7 @@ function UploadCard({
   const [isDragging, setIsDragging] = useState(false);
   const [copied, setCopied] = useState(false);
   const status = documentStatus?.status || uploadResult?.status;
-  const isProcessing =
-    status === "uploaded" ||
-    status === "queued" ||
-    status === "extracting" ||
-    status === "processing";
+  const isProcessing = status === "uploaded" || status === "processing";
   const isReady = status === "ready";
   const isFailed = status === "failed";
   const processedPages = documentStatus?.processed_pages || 0;
@@ -74,6 +81,40 @@ function UploadCard({
           <Upload size={22} />
         </div>
       </div>
+
+      <section className="mt-6 border border-charcoal/15 bg-[#fbfaf7] p-4">
+        <div className="flex items-start gap-3">
+          <BookOpen className="mt-0.5 shrink-0 text-teal-700" size={20} />
+          <div className="min-w-0 flex-1">
+            <label htmlFor="saved-document" className="text-sm font-black text-charcoal">
+              Saved PDFs
+            </label>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Reuse an indexed document without uploading it again.
+            </p>
+            <select
+              id="saved-document"
+              value={uploadResult?.document_id || ""}
+              onChange={(event) => onSavedDocumentSelect(event.target.value)}
+              disabled={isLoadingDocuments || isUploading || savedDocuments.length === 0}
+              className="mt-3 block w-full border border-charcoal/20 bg-white px-3 py-3 text-sm font-bold text-charcoal outline-none focus:border-teal-700 focus:ring-4 focus:ring-teal-600/15 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              <option value="">
+                {isLoadingDocuments
+                  ? "Loading saved PDFs..."
+                  : savedDocuments.length
+                    ? "Choose a saved PDF"
+                    : "No saved PDFs yet"}
+              </option>
+              {savedDocuments.map((document) => (
+                <option key={document.document_id} value={document.document_id}>
+                  {document.filename} ({document.status})
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </section>
 
       <label
         onDragOver={(event) => {
@@ -145,7 +186,9 @@ function UploadCard({
           <dl className="mt-4 grid gap-3 sm:grid-cols-2">
             <div className="bg-white p-3 ring-1 ring-emerald-100">
               <dt className="eyebrow text-slate-500">File Name</dt>
-              <dd className="mt-1 break-words text-sm font-bold text-charcoal">{uploadResult.filename}</dd>
+              <dd className="mt-1 break-words text-sm font-bold text-charcoal">
+                {uploadResult?.filename || documentStatus?.filename}
+              </dd>
             </div>
             <div className="bg-white p-3 ring-1 ring-emerald-100">
               <div className="flex items-center justify-between gap-2">

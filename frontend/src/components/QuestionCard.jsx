@@ -1,11 +1,24 @@
-import { HelpCircle, Info, MessageCircle, Zap } from "lucide-react";
+import {
+  BookOpen,
+  GraduationCap,
+  HelpCircle,
+  Info,
+  MessageCircle,
+  Zap,
+} from "lucide-react";
 
 const MAX_QUESTION_LENGTH = 1000;
-const suggestions = [
-  "What is this document about?",
-  "Explain key points",
-  "Summarize this PDF",
-  "Give exam notes",
+const examSuggestions = [
+  "Explain this topic in simple points",
+  "Write an 8-mark exam answer",
+  "Give a definition and example",
+  "Compare the main concepts",
+];
+const unitSuggestions = [
+  "Create detailed revision notes for this unit",
+  "Explain every important topic in this unit",
+  "Give important exam questions from this unit",
+  "Create a rapid revision checklist for this unit",
 ];
 
 function QuestionCard({
@@ -15,14 +28,19 @@ function QuestionCard({
   askError,
   isAsking,
   fastMode,
+  answerMode,
+  unitNumber,
   onQuestionChange,
   onFastModeChange,
+  onAnswerModeChange,
+  onUnitNumberChange,
   onSubmit,
 }) {
   const isReady = documentStatus?.status === "ready";
   const hasIndexedChunks = (documentStatus?.total_chunks || 0) > 0;
   const isFailed = documentStatus?.status === "failed";
   const isAskDisabled = !documentId || (!isReady && !hasIndexedChunks) || !question.trim() || isAsking;
+  const suggestions = answerMode === "unit" ? unitSuggestions : examSuggestions;
 
   function handleQuestionChange(value) {
     onQuestionChange(value.slice(0, MAX_QUESTION_LENGTH));
@@ -43,6 +61,62 @@ function QuestionCard({
         </div>
       </div>
 
+      <div className="mt-6 grid grid-cols-2 border border-charcoal">
+        <button
+          type="button"
+          onClick={() => onAnswerModeChange("exam")}
+          className={`flex min-h-20 items-center justify-center gap-2 px-3 py-3 text-sm font-black transition ${
+            answerMode === "exam"
+              ? "bg-charcoal text-white"
+              : "bg-white text-charcoal hover:bg-slate-50"
+          }`}
+        >
+          <GraduationCap size={18} />
+          Exam Answer
+        </button>
+        <button
+          type="button"
+          onClick={() => onAnswerModeChange("unit")}
+          className={`flex min-h-20 items-center justify-center gap-2 border-l border-charcoal px-3 py-3 text-sm font-black transition ${
+            answerMode === "unit"
+              ? "bg-teal-700 text-white"
+              : "bg-white text-charcoal hover:bg-teal-50"
+          }`}
+        >
+          <BookOpen size={18} />
+          Unit Notes
+        </button>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-slate-500">
+        {answerMode === "unit"
+          ? `Creates detailed revision notes using only Unit ${unitNumber}.`
+          : "Writes a complete 8-10 mark answer from the most relevant document sections."}
+      </p>
+
+      {answerMode === "unit" && (
+        <div className="mt-4">
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">
+            Choose Unit
+          </p>
+          <div className="mt-2 grid grid-cols-5 border border-charcoal">
+            {[1, 2, 3, 4, 5].map((unit) => (
+              <button
+                key={unit}
+                type="button"
+                onClick={() => onUnitNumberChange(unit)}
+                className={`min-h-12 border-r border-charcoal text-sm font-black transition last:border-r-0 ${
+                  unitNumber === unit
+                    ? "bg-teal-700 text-white"
+                    : "bg-white text-charcoal hover:bg-teal-50"
+                }`}
+              >
+                {unit}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <label className="mt-6 block">
         <span className="sr-only">Question</span>
         <textarea
@@ -50,7 +124,11 @@ function QuestionCard({
           onChange={(event) => handleQuestionChange(event.target.value)}
           rows={10}
           maxLength={MAX_QUESTION_LENGTH}
-          placeholder={`Examples:\n- Explain deadlock prevention in simple points\n- Summarize paging in operating systems`}
+          placeholder={
+            answerMode === "unit"
+              ? `Example: Create detailed exam notes for Unit ${unitNumber}`
+              : `Examples:\n- Explain deadlock prevention in simple points\n- Write an 8-mark answer on paging`
+          }
           className="block min-h-64 w-full resize-y border border-charcoal/15 bg-[#fbfaf7] px-4 py-4 text-sm leading-7 text-charcoal shadow-inner outline-none transition placeholder:text-slate-400 focus:border-teal-700 focus:ring-4 focus:ring-teal-600/15"
         />
       </label>
@@ -87,14 +165,15 @@ function QuestionCard({
         </p>
       </div>
 
-      <label className="mt-4 flex cursor-pointer items-center justify-between gap-4 border border-charcoal bg-charcoal px-4 py-3 text-white">
+      {answerMode === "exam" && (
+        <label className="mt-4 flex cursor-pointer items-center justify-between gap-4 border border-charcoal bg-charcoal px-4 py-3 text-white">
         <div>
           <p className="flex items-center gap-2 text-sm font-black">
             <Zap size={16} className="text-teal-200" />
             Fast Mode
           </p>
           <p className="mt-0.5 text-xs leading-5 text-white/60">
-            Search fewer chunks for faster answers.
+            Shorter answer using fewer chunks.
           </p>
         </div>
         <input
@@ -103,7 +182,8 @@ function QuestionCard({
           onChange={(event) => onFastModeChange(event.target.checked)}
           className="h-5 w-5 rounded-none border-white/40 bg-white/10 text-teal-300 focus:ring-teal-300"
         />
-      </label>
+        </label>
+      )}
 
       {askError && (
         <div className="mt-4 break-words border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
@@ -117,7 +197,13 @@ function QuestionCard({
         className="mt-5 flex w-full items-center justify-center gap-2 bg-teal-700 px-4 py-3 text-sm font-black text-white transition hover:bg-charcoal disabled:cursor-not-allowed disabled:bg-slate-400"
       >
         <MessageCircle size={18} />
-        {isAsking ? "Searching document..." : "Ask Question"}
+        {isAsking
+          ? answerMode === "unit"
+            ? `Reading Unit ${unitNumber}...`
+            : "Searching document..."
+          : answerMode === "unit"
+            ? `Create Unit ${unitNumber} Notes`
+            : "Ask Question"}
       </button>
     </form>
   );

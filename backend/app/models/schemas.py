@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -24,3 +24,5 @@ class AskRequest(BaseModel):
     document_id: Optional[str] = None
     match_count: int = Field(default=5, ge=1, le=10)
     fast_mode: bool = False
+    answer_mode: Literal["exam", "summary", "unit"] = "exam"
+    unit_number: Optional[int] = Field(default=None, ge=1, le=10)

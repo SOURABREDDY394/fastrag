@@ -1,17 +1,8 @@
 import axios from "axios";
 
-const RENDER_API_BASE_URL = "https://fastrag-1.onrender.com";
-const configuredApiBaseUrl =
-  import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL || "";
-const normalizedApiBaseUrl = configuredApiBaseUrl.trim().replace(/\/+$/, "");
-const isLocalApiBaseUrl = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(
-  normalizedApiBaseUrl,
-);
-
-const API_BASE_URL =
-  import.meta.env.PROD && isLocalApiBaseUrl
-    ? RENDER_API_BASE_URL
-    : normalizedApiBaseUrl || RENDER_API_BASE_URL;
+const API_BASE_URL = (
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"
+).replace(/\/+$/, "");
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -35,12 +26,25 @@ export async function getDocumentStatus(documentId) {
   return response.data;
 }
 
-export async function askQuestion(question, documentId, fastMode = false) {
+export async function getSavedDocuments() {
+  const response = await api.get("/documents");
+  return response.data.documents || [];
+}
+
+export async function askQuestion(
+  question,
+  documentId,
+  fastMode = false,
+  answerMode = "exam",
+  unitNumber = null,
+) {
   const response = await api.post("/ask", {
     question,
     document_id: documentId,
-    match_count: 5,
+    match_count: answerMode === "summary" ? 5 : 7,
     fast_mode: fastMode,
+    answer_mode: answerMode,
+    unit_number: answerMode === "unit" ? unitNumber : null,
   });
 
   return response.data;

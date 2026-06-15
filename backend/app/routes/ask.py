@@ -18,6 +18,8 @@ def ask(request: AskRequest):
         document_id=request.document_id,
         match_count=request.match_count,
         fast_mode=request.fast_mode,
+        answer_mode=request.answer_mode,
+        unit_number=request.unit_number,
     )
 
     return {

@@ -1,19 +1,44 @@
 from functools import lru_cache
+import logging
 import os
+import time
 
 from fastapi import HTTPException
 
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "5"))
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))
+EMBEDDING_LOCAL_FILES_ONLY = os.getenv(
+    "EMBEDDING_LOCAL_FILES_ONLY",
+    "true",
+).lower() in {"1", "true", "yes"}
+logger = logging.getLogger(__name__)
 
 
 @lru_cache
 def get_embedding_model():
+    load_started_at = time.perf_counter()
+
     try:
         from sentence_transformers import SentenceTransformer
 
-        return SentenceTransformer(EMBEDDING_MODEL_NAME)
+        model = SentenceTransformer(
+            EMBEDDING_MODEL_NAME,
+            local_files_only=EMBEDDING_LOCAL_FILES_ONLY,
+        )
+        logger.info(
+            "[FastRAG] Embedding model ready in %sms",
+            round((time.perf_counter() - load_started_at) * 1000),
+        )
+        return model
     except Exception as exc:
+        if EMBEDDING_LOCAL_FILES_ONLY:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "The embedding model is not available in the local cache. "
+                    "Set EMBEDDING_LOCAL_FILES_ONLY=false once to download it."
+                ),
+            ) from exc
         raise HTTPException(
             status_code=500,
             detail=f"Could not load embedding model: {exc}",
